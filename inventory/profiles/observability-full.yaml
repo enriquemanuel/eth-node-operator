@@ -1,0 +1,53 @@
+name: observability-full
+spec:
+  observability:
+    metrics:
+      enabled: true
+      scrapeInterval: 15s
+      exporters:
+        - name: node-exporter
+          port: 9100
+          path: /metrics
+        - name: geth-metrics
+          port: 6060
+          path: /debug/metrics/prometheus
+        - name: lighthouse-metrics
+          port: 5054
+          path: /metrics
+        - name: mev-boost-metrics
+          port: 18550
+          path: /metrics
+      remoteWrite:
+        - url: http://mimir.monitoring.svc:9009/api/v1/push
+          secret: MIMIR_AUTH_TOKEN
+    logs:
+      provider: alloy
+      destinations:
+        - type: loki
+          url: http://loki.monitoring.svc:3100/loki/api/v1/push
+          enabled: true
+        - type: datadog
+          url: https://http-intake.logs.datadoghq.com
+          enabled: true
+
+  network:
+    firewall:
+      rules:
+        - description: "Prometheus scrape from k8s cluster"
+          port: 9100
+          proto: tcp
+          direction: inbound
+          source: "172.16.0.0/12"
+          action: allow
+        - description: "Geth metrics from k8s cluster"
+          port: 6060
+          proto: tcp
+          direction: inbound
+          source: "172.16.0.0/12"
+          action: allow
+        - description: "Lighthouse metrics from k8s cluster"
+          port: 5054
+          proto: tcp
+          direction: inbound
+          source: "172.16.0.0/12"
+          action: allow

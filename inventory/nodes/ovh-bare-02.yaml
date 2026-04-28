@@ -1,0 +1,38 @@
+name: ovh-bare-02
+host: 10.1.1.2
+port: 9000
+labels:
+  region: eu-west-1
+  provider: ovh
+  role: validator
+  rack: "01"
+profiles:
+  - mainnet-base
+  - observability-full
+  - mev-standard
+
+spec:
+  execution:
+    client: nethermind
+    image: nethermind/nethermind:v1.26.0
+    dataDir: /data/execution
+    flags:
+      config: mainnet
+      JsonRpc.Enabled: "true"
+      JsonRpc.Host: "127.0.0.1"
+      JsonRpc.Port: "8545"
+
+  consensus:
+    client: teku
+    image: consensys/teku:24.6.0
+    dataDir: /data/consensus
+    flags:
+      network: mainnet
+      ee-endpoint: http://127.0.0.1:8551
+      metrics-enabled: "true"
+      rest-api-enabled: "true"
+      checkpoint-sync-url: https://beaconstate.ethstaker.cc
+
+  maintenance:
+    window:
+      schedule: "0 3 * * 0"  # Sunday 3am UTC (offset from node 01)

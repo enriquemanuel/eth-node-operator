@@ -1,0 +1,38 @@
+[Unit]
+Description=ethagent - Ethereum bare metal node operator agent
+Documentation=https://github.com/enriquemanuel/eth-node-operator
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/bin/ethagent \
+    --spec=/etc/ethagent/node.yaml \
+    --listen=:9000 \
+    --el-endpoint=http://127.0.0.1:8545 \
+    --cl-endpoint=http://127.0.0.1:5052 \
+    --log-level=info
+
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+
+# Environment overrides (optional — values can also be passed via flags above)
+EnvironmentFile=-/etc/ethagent/env
+
+# Security hardening
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectSystem=false
+ProtectHome=read-only
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ethagent
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,110 @@
+name: mainnet-base
+spec:
+  system:
+    packages:
+      - name: docker-ce
+        version: "26.1.4"
+      - name: docker-compose-plugin
+        version: "2.27.0"
+      - name: ufw
+        version: latest
+      - name: chrony
+        version: latest
+      - name: prometheus-node-exporter
+        version: latest
+    kernel:
+      parameters:
+        vm.swappiness: "1"
+        net.core.rmem_max: "134217728"
+        net.core.wmem_max: "134217728"
+        net.ipv4.tcp_rmem: "4096 87380 134217728"
+        net.ipv4.tcp_wmem: "4096 65536 134217728"
+        net.core.somaxconn: "65535"
+
+  network:
+    firewall:
+      provider: ufw
+      policy: deny-by-default
+      rules:
+        - description: "SSH"
+          port: 22
+          proto: tcp
+          direction: inbound
+          action: allow
+        - description: "eth-agent API"
+          port: 9000
+          proto: tcp
+          direction: inbound
+          action: allow
+        - description: "EL P2P TCP"
+          port: 30303
+          proto: tcp
+          direction: inbound
+          action: allow
+        - description: "EL P2P UDP"
+          port: 30303
+          proto: udp
+          direction: inbound
+          action: allow
+        - description: "CL P2P TCP"
+          port: 9000
+          proto: tcp
+          direction: inbound
+          action: allow
+        - description: "CL P2P UDP"
+          port: 9000
+          proto: udp
+          direction: inbound
+          action: allow
+        - description: "node-exporter (internal only)"
+          port: 9100
+          proto: tcp
+          direction: inbound
+          source: "10.0.0.0/8"
+          action: allow
+
+  execution:
+    client: geth
+    image: ethereum/client-go:v1.14.8
+    dataDir: /data/execution
+    flags:
+      syncmode: snap
+      cache: "4096"
+      maxpeers: "100"
+      http: "true"
+      http.addr: "127.0.0.1"
+      http.port: "8545"
+      http.api: "eth,net,web3,engine,admin"
+      authrpc.addr: "127.0.0.1"
+      authrpc.port: "8551"
+    ports:
+      http: 8545
+      p2p: 30303
+      metrics: 6060
+
+  consensus:
+    client: lighthouse
+    image: sigp/lighthouse:v5.3.0
+    dataDir: /data/consensus
+    flags:
+      network: mainnet
+      checkpoint-sync-url: https://mainnet.checkpoint.sigp.io
+      execution-endpoint: http://127.0.0.1:8551
+      metrics: "true"
+      port: "9000"
+    ports:
+      http: 5052
+      p2p: 9000
+      metrics: 5054
+
+  maintenance:
+    window:
+      schedule: "0 2 * * 0"  # Sunday 2am UTC
+    upgradeStrategy:
+      order: [cl, mev, el]
+      preflightChecks: [elSynced, clSynced, peerCount]
+    autoUpgrade:
+      enabled: false
+      el: none
+      cl: none
+      packages: security-only

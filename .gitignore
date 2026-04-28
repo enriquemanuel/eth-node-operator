@@ -1,0 +1,25 @@
+dist/
+coverage.out
+coverage.html
+*.test
+*.out
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local env overrides
+.env
+.env.local
+
+# Secrets
+*.key
+*.pem
+*.crt
+jwtsecret

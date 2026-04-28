@@ -1,0 +1,42 @@
+name: ovh-bare-01
+host: 10.1.1.1
+port: 9000
+labels:
+  region: eu-west-1
+  provider: ovh
+  role: validator
+  rack: "01"
+profiles:
+  - mainnet-base
+  - observability-full
+  - mev-standard
+
+spec:
+  # Node-level overrides on top of profiles
+  # Only specify what differs from the profiles
+
+  execution:
+    # Pin this node to a specific patch version
+    image: ethereum/client-go:v1.14.8
+    flags:
+      # Extra cache for this beefy host
+      cache: "8192"
+
+  consensus:
+    image: sigp/lighthouse:v5.3.0
+    flags:
+      # Node-specific JWT secret path (eth-docker default)
+      execution-jwt: /data/jwtsecret
+
+  system:
+    disk:
+      - device: /dev/nvme0n1p1
+        mountPath: /data
+        fsType: ext4
+        options: [noatime, nodiratime]
+
+  maintenance:
+    window:
+      schedule: "0 2 * * 0"  # Sunday 2am UTC
+    autoUpgrade:
+      enabled: false
