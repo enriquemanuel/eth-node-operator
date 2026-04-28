@@ -1,22 +1,15 @@
 ---
 # bootstrap.yaml — one-time setup of ethagent on a bare metal host
 # Run with: ansible-playbook -i hosts.ini bootstrap.yaml --limit <host>
-#
-# Prerequisites:
-#   - SSH access to host
-#   - sudo/root access
-#   - ansible-playbook installed locally
 
 - name: Bootstrap ethagent on bare metal Ethereum node
   hosts: all
   become: yes
   vars:
-    ethagent_version: "{{ lookup('env', 'ETHAGENT_VERSION') | default('latest') }}"
     ethagent_binary: "/usr/local/bin/ethagent"
     ethagent_config_dir: "/etc/ethagent"
-    ethagent_node_name: "{{ inventory_hostname }}"
-    el_endpoint: "http://127.0.0.1:8545"
-    cl_endpoint: "http://127.0.0.1:5052"
+    jwt_secret_path: "/data/jwtsecret"
+    data_dir: "/data"
 
   tasks:
     - name: Ensure required packages are installed
@@ -25,8 +18,18 @@
           - curl
           - ufw
           - chrony
+          - openssl
+          - smartmontools
         state: present
         update_cache: yes
+
+    - name: Create data directory
+      file:
+        path: "{{ data_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
 
     - name: Create ethagent config directory
       file:
@@ -35,6 +38,40 @@
         owner: root
         group: root
         mode: "0750"
+
+    # ── JWT Secret ─────────────────────────────────────────
+    # Generate once using openssl — idempotent, never overwrites.
+    # Format: "0x" + 64 lowercase hex chars (32 bytes)
+    # eth-docker compatible — both EL and CL containers mount this file.
+
+    - name: Check if JWT secret already exists
+      stat:
+        path: "{{ jwt_secret_path }}"
+      register: jwt_file
+
+    - name: Generate JWT secret (first time only)
+      shell: |
+        echo "0x$(openssl rand -hex 32)" > {{ jwt_secret_path }}
+        chmod 640 {{ jwt_secret_path }}
+        chown root:root {{ jwt_secret_path }}
+      when: not jwt_file.stat.exists
+
+    - name: Validate JWT secret format
+      shell: |
+        SECRET=$(cat {{ jwt_secret_path }} | tr -d '[:space:]')
+        if [[ ! "$SECRET" =~ ^0x[0-9a-f]{64}$ ]]; then
+          echo "INVALID: $SECRET"
+          exit 1
+        fi
+        echo "OK: ${#SECRET} chars"
+      register: jwt_check
+      changed_when: false
+
+    - name: Show JWT secret status
+      debug:
+        msg: "JWT secret {{ 'created' if not jwt_file.stat.exists else 'already exists' }} at {{ jwt_secret_path }} — {{ jwt_check.stdout }}"
+
+    # ── ethagent binary ────────────────────────────────────
 
     - name: Copy ethagent binary
       copy:
@@ -82,17 +119,16 @@
       register: result
       until: result.status == 200
 
-    - name: Verify ethagent is reporting status
+    - name: Show node status
       uri:
         url: "http://localhost:9000/status"
         method: GET
-        status_code: 200
         return_content: yes
-      register: status_response
+      register: status
 
-    - name: Show node status
+    - name: Print status
       debug:
-        msg: "ethagent is running: {{ status_response.content | from_json | json_query('phase') }}"
+        msg: "ethagent running — phase: {{ (status.content | from_json).phase }}"
 
   handlers:
     - name: reload systemd

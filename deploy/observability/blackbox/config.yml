@@ -1,0 +1,61 @@
+# blackbox_exporter configuration
+# Probes network reachability and latency:
+#   icmp   - ping to default gateway (detects host-level network issues)
+#   dns    - DNS resolution latency (detects resolver issues)
+#   tcp    - TCP connectivity to MEV relay endpoints
+
+modules:
+
+  # ── ICMP ping ──────────────────────────────────────────────
+  # Measures: RTT, packet loss to gateway/upstream
+  # Useful for detecting upstream network degradation before
+  # it impacts P2P peer connectivity.
+  icmp:
+    prober: icmp
+    timeout: 5s
+    icmp:
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+
+  # ── DNS probe ──────────────────────────────────────────────
+  # Measures: time to resolve a well-known hostname
+  # Catches DNS resolver issues that affect checkpoint sync
+  # and relay URL resolution.
+  dns_udp:
+    prober: dns
+    timeout: 5s
+    dns:
+      transport_protocol: udp
+      preferred_ip_protocol: ip4
+      query_name: "cloudflare.com"
+      query_type: "A"
+      valid_rcodes:
+        - NOERROR
+
+  # ── TCP connectivity to MEV relay ─────────────────────────
+  # Measures: TCP handshake success + latency to relay endpoints.
+  # A failed probe means mev-boost cannot reach the relay.
+  tcp_tls:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
+      tls: true
+      tls_config:
+        insecure_skip_verify: false
+
+  # ── HTTP probe for EL/CL RPC endpoints ────────────────────
+  # Verifies JSON-RPC endpoints respond (not just port open)
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_http_versions:
+        - "HTTP/1.1"
+        - "HTTP/2.0"
+      valid_status_codes:
+        - 200
+        - 405   # POST-only endpoints return 405 on GET
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false

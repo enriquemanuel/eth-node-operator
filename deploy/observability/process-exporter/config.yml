@@ -1,0 +1,58 @@
+# process-exporter configuration
+# Groups track named sets of processes for per-process CPU/mem/FD/IO metrics.
+# Each group appears as a label in Prometheus as `groupname`.
+
+process_names:
+
+  # Execution layer clients
+  - name: "geth"
+    cmdline:
+      - "/usr/local/bin/geth"
+
+  - name: "nethermind"
+    cmdline:
+      - "Nethermind.Runner"
+
+  - name: "besu"
+    cmdline:
+      - "besu"
+
+  - name: "reth"
+    cmdline:
+      - "reth"
+
+  # Consensus layer clients
+  - name: "lighthouse"
+    cmdline:
+      - "lighthouse"
+
+  - name: "teku"
+    cmdline:
+      - "teku"
+
+  - name: "prysm"
+    cmdline:
+      - "beacon-chain"
+
+  - name: "nimbus"
+    cmdline:
+      - "nimbus_beacon_node"
+
+  # MEV
+  - name: "mev-boost"
+    cmdline:
+      - "mev-boost"
+
+  # ethagent
+  - name: "ethagent"
+    cmdline:
+      - "ethagent"
+
+  # Docker infrastructure
+  - name: "dockerd"
+    cmdline:
+      - "dockerd"
+
+  - name: "containerd"
+    cmdline:
+      - "containerd"

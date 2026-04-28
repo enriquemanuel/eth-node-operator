@@ -1,12 +1,19 @@
-# Observability stack for bare metal Ethereum nodes
+# Observability stack — bare metal Ethereum node
+# "Host metrics on steroids" edition
 #
-# Runs alongside eth-docker on the same host.
-# Start with: docker compose -f docker-compose.observability.yml up -d
+# Components:
+#   traefik                   TLS termination via Cloudflare DNS-01
+#   node-exporter             Host OS: ALL collectors (ethtool, hwmon, systemd, etc.)
+#   cadvisor                  Per-container CPU/mem/net/disk I/O
+#   ethereum-metrics-exporter EL+CL protocol: sync, finality, peers, txpool, blobs
+#   smartctl_exporter         NVMe/SSD/HDD SMART health, wear, temperature
+#   process-exporter          Per-process metrics: geth, lighthouse, mev-boost, ethagent
+#   blackbox_exporter         Network latency: ICMP ping, DNS, TCP to MEV relays
+#   ipmi_exporter             (optional) Power draw, CPU temps, fan speeds via IPMI
+#   alloy                     Unified scraper + log shipper → Mimir + Loki
 #
-# Prerequisites:
-#   - Copy .env.example to .env and fill in credentials
-#   - eth-docker containers named: execution, consensus, mev-boost
-#   - /data/execution and /data/consensus mount points exist
+# Start: docker compose -f docker-compose.observability.yml up -d
+# Stop:  docker compose -f docker-compose.observability.yml down
 
 networks:
   observability:
@@ -50,10 +57,17 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
-        tag: "traefik"
 
-  # ── node-exporter: host system metrics ───────────────────
-  # CPU, memory, disk I/O, network, filesystem, systemd units
+  # ── node-exporter: host system metrics (full collector set) ─
+  # Collectors enabled beyond defaults:
+  #   ethtool     NIC errors, dropped packets, rx/tx rates per interface
+  #   hwmon       CPU/disk/NVMe temperature sensors (lm-sensors)
+  #   systemd     Unit state (active/failed) for ethagent, docker, chrony
+  #   processes   Per-process counts by state
+  #   buddyinfo   Memory fragmentation index
+  #   interrupts  IRQ counts (useful for NVMe and NIC tuning)
+  #   mountstats  NFS mount I/O stats
+  #   network_route  Route table entries
   node-exporter:
     image: quay.io/prometheus/node-exporter:v1.8.2
     container_name: node-exporter
@@ -64,10 +78,35 @@ services:
       - "--path.rootfs=/host"
       - "--path.procfs=/host/proc"
       - "--path.sysfs=/host/sys"
-      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
-      - "--collector.systemd"
-      - "--collector.processes"
       - "--web.listen-address=:9100"
+      # Filesystem: exclude ephemeral/virtual mounts
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|run/user)($$|/)"
+      - "--collector.filesystem.fs-types-exclude=^(tmpfs|devtmpfs|devfs|overlay|aufs|squashfs|nsfs|cgroup2?)($$|/)"
+      # Enable all extra collectors
+      - "--collector.ethtool"
+      - "--collector.ethtool.device-include=^(eth|ens|enp|eno|bond|team|br)[0-9]+"
+      - "--collector.hwmon"
+      - "--collector.systemd"
+      - "--collector.systemd.unit-include=^(ethagent|docker|containerd|chrony|ssh|ufw)\.service$$"
+      - "--collector.processes"
+      - "--collector.buddyinfo"
+      - "--collector.interrupts"
+      - "--collector.cpu"
+      - "--collector.cpufreq"
+      - "--collector.meminfo"
+      - "--collector.diskstats"
+      - "--collector.netdev"
+      - "--collector.netstat"
+      - "--collector.stat"
+      - "--collector.loadavg"
+      - "--collector.uname"
+      - "--collector.time"
+      - "--collector.sockstat"
+      - "--collector.filefd"
+      - "--collector.conntrack"
+      - "--collector.vmstat"
+      - "--collector.ntp"
+      - "--collector.tcpstat"
     volumes:
       - /:/host:ro,rslave
       - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket:ro
@@ -79,8 +118,135 @@ services:
         max-size: "10m"
         max-file: "2"
 
-  # ── ethereum-metrics-exporter: EL+CL protocol metrics ────
-  # Sync status, finality, peers, txpool, blob counts, fork choice
+  # ── cAdvisor: per-container resource metrics ───────────────
+  # Provides: container CPU (user/system/throttle), memory (RSS/cache/swap),
+  # network (bytes/packets/errors per interface), filesystem (reads/writes/usage),
+  # OOM events, container restarts — all labeled by container name and image.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    networks:
+      - observability
+    ports:
+      - "127.0.0.1:8080:8080"
+    command:
+      - "--port=8080"
+      - "--disable_metrics=tcp,udp,percpu,sched,hugetlb,referenced_memory,resctrl"
+      - "--docker_only=true"
+      - "--store_container_labels=true"
+      - "--whitelisted_container_labels=com.docker.compose.service"
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "2"
+
+  # ── smartctl_exporter: disk SMART health ───────────────────
+  # Monitors: NVMe wear level, power-on hours, unsafe shutdowns,
+  # temperature (composite + drive temps), uncorrectable errors,
+  # media errors, ATA reallocated sectors, pending sectors.
+  # Critical for bare metal — catches failing drives before data loss.
+  smartctl-exporter:
+    image: prometheuscommunity/smartctl-exporter:v0.12.0
+    container_name: smartctl-exporter
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    command:
+      - "--smartctl.path=/usr/sbin/smartctl"
+      - "--web.listen-address=:9633"
+    volumes:
+      - /dev:/dev
+    cap_add:
+      - SYS_RAWIO
+      - SYS_ADMIN
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  # ── process-exporter: per-process metrics ─────────────────
+  # Named groups track: geth/nethermind/besu, lighthouse/teku/prysm,
+  # mev-boost, ethagent. Provides per-process CPU%, RSS, open FDs,
+  # thread count, I/O bytes — distinguish which client is consuming what.
+  process-exporter:
+    image: ncabatoff/process-exporter:0.8.3
+    container_name: process-exporter
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    command:
+      - "--procfs=/host/proc"
+      - "--config.path=/etc/process-exporter/config.yml"
+      - "--web.listen-address=:9256"
+    volumes:
+      - /proc:/host/proc:ro
+      - ./process-exporter/config.yml:/etc/process-exporter/config.yml:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  # ── blackbox_exporter: network latency + probe ────────────
+  # Probes: ICMP ping to gateway (RTT, packet loss), DNS resolution
+  # latency, TCP connectivity to MEV relay endpoints.
+  # Catches network degradation before it impacts P2P performance.
+  blackbox-exporter:
+    image: quay.io/prometheus/blackbox-exporter:v0.25.0
+    container_name: blackbox-exporter
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - "--config.file=/etc/blackbox/config.yml"
+      - "--web.listen-address=:9115"
+    volumes:
+      - ./blackbox/config.yml:/etc/blackbox/config.yml:ro
+    cap_add:
+      - NET_RAW
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  # ── ipmi_exporter: hardware power + thermal ───────────────
+  # Optional — only useful if the bare metal server has IPMI/BMC.
+  # Provides: power consumption (watts), inlet/exhaust/CPU temperatures,
+  # fan speeds (RPM), chassis intrusion, power supply status.
+  # Comment out entire service if IPMI is not available.
+  ipmi-exporter:
+    image: prometheuscommunity/ipmi-exporter:v1.8.0
+    container_name: ipmi-exporter
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    command:
+      - "--config.file=/etc/ipmi/config.yml"
+      - "--web.listen-address=:9290"
+    volumes:
+      - ./ipmi/config.yml:/etc/ipmi/config.yml:ro
+    devices:
+      - /dev/ipmi0:/dev/ipmi0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  # ── ethereum-metrics-exporter: EL+CL protocol metrics ─────
   ethereum-metrics-exporter:
     image: ethpandaops/ethereum-metrics-exporter:latest
     container_name: ethereum-metrics-exporter
@@ -92,9 +258,6 @@ services:
     volumes:
       - ./ethereum-metrics-exporter/config.yaml:/etc/ethereum-metrics-exporter/config.yaml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      EL_RPC_URL: ${EL_RPC_URL:-http://localhost:8545}
-      CL_REST_URL: ${CL_REST_URL:-http://localhost:5052}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9191/metrics"]
       interval: 30s
@@ -106,8 +269,7 @@ services:
         max-size: "20m"
         max-file: "3"
 
-  # ── Grafana Alloy: unified metrics scraper + log shipper ──
-  # Replaces: Prometheus agent + Promtail + OTEL collector
+  # ── Grafana Alloy: unified scraper + log shipper ──────────
   alloy:
     image: grafana/alloy:v1.8.1
     container_name: alloy

@@ -1,190 +1,176 @@
 // ============================================================
-// Grafana Alloy configuration for bare metal Ethereum nodes
-// Replaces: Prometheus scraper + Promtail + OTEL collector
+// Grafana Alloy configuration — bare metal Ethereum node
+// "Host metrics on steroids" edition
 //
-// Scrapes:
-//   - node-exporter          (system: CPU, mem, disk, network)
-//   - ethereum-metrics-exporter (EL+CL: sync, peers, slots, finality)
-//   - geth native metrics    (mempool, rpc latency, chain head)
-//   - lighthouse/teku metrics (attestations, duties, validator status)
-//   - mev-boost metrics      (relay bids, payload delivery)
-//   - ethagent               (reconciler health, phase)
-//
-// Ships:
-//   - Metrics → Mimir (remote write)
-//   - Logs    → Loki
+// Scrapes all exporters and ships to Mimir + Loki.
 // ============================================================
 
-// ── Labels applied to every series and log stream ──────────
-
-local.file "node_labels" {
-  filename = "/etc/alloy/node-labels.yaml"
-  is_secret = false
-}
-
-// ── Prometheus scrape: node-exporter ───────────────────────
+// ── System metrics ─────────────────────────────────────────
 
 prometheus.scrape "node_exporter" {
-  targets = [{
-    __address__ = "localhost:9100",
-  }]
-
+  targets = [{"__address__" = "localhost:9100"}]
   job_name        = "node-exporter"
   scrape_interval = "15s"
   scrape_timeout  = "10s"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  extra_labels    = { node = env("NODE_NAME"), role = "bare-metal" }
+}
 
-  forward_to = [prometheus.remote_write.mimir.receiver]
+prometheus.scrape "cadvisor" {
+  targets = [{"__address__" = "localhost:8080"}]
+  job_name        = "cadvisor"
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  extra_labels    = { node = env("NODE_NAME") }
+}
 
-  extra_labels = {
-    node = env("NODE_NAME"),
-    role = "bare-metal",
+prometheus.scrape "smartctl" {
+  targets = [{"__address__" = "localhost:9633"}]
+  job_name        = "smartctl"
+  scrape_interval = "60s"   // SMART polling is slow; 60s is fine
+  scrape_timeout  = "30s"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  extra_labels    = { node = env("NODE_NAME") }
+}
+
+prometheus.scrape "process_exporter" {
+  targets = [{"__address__" = "localhost:9256"}]
+  job_name        = "process-exporter"
+  scrape_interval = "15s"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  extra_labels    = { node = env("NODE_NAME") }
+}
+
+prometheus.scrape "ipmi" {
+  targets = [{"__address__" = "localhost:9290"}]
+  job_name        = "ipmi"
+  scrape_interval = "30s"
+  scrape_timeout  = "20s"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  extra_labels    = { node = env("NODE_NAME") }
+}
+
+// ── Network latency probes (blackbox_exporter) ─────────────
+
+// ICMP ping to default gateway
+prometheus.scrape "blackbox_icmp_gateway" {
+  targets = [{
+    __address__  = "localhost:9115",
+    __param_target = env("DEFAULT_GATEWAY"),
+    __param_module = "icmp",
+  }]
+  job_name        = "blackbox-icmp"
+  metrics_path    = "/probe"
+  scrape_interval = "30s"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  extra_labels    = {
+    node   = env("NODE_NAME"),
+    target = env("DEFAULT_GATEWAY"),
   }
 }
 
-// ── Prometheus scrape: ethereum-metrics-exporter ───────────
-// Covers: sync status, head slot/block, peer count, finality,
-//         tx pool depth, fork choice, blob counts
+// DNS resolution latency
+prometheus.scrape "blackbox_dns" {
+  targets = [{
+    __address__  = "localhost:9115",
+    __param_target = "1.1.1.1",
+    __param_module = "dns_udp",
+  }]
+  job_name        = "blackbox-dns"
+  metrics_path    = "/probe"
+  scrape_interval = "60s"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  extra_labels    = { node = env("NODE_NAME") }
+}
+
+// TCP probe to Flashbots MEV relay
+prometheus.scrape "blackbox_relay_flashbots" {
+  targets = [{
+    __address__  = "localhost:9115",
+    __param_target = "boost-relay.flashbots.net:443",
+    __param_module = "tcp_tls",
+  }]
+  job_name        = "blackbox-relay"
+  metrics_path    = "/probe"
+  scrape_interval = "60s"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  extra_labels    = {
+    node  = env("NODE_NAME"),
+    relay = "flashbots",
+  }
+}
+
+// ── Ethereum protocol metrics ───────────────────────────────
 
 prometheus.scrape "ethereum_metrics_exporter" {
-  targets = [{
-    __address__ = "localhost:9191",
-  }]
-
+  targets = [{"__address__" = "localhost:9191"}]
   job_name        = "ethereum-metrics-exporter"
   scrape_interval = "15s"
   scrape_timeout  = "10s"
-
-  forward_to = [prometheus.remote_write.mimir.receiver]
-
-  extra_labels = {
-    node = env("NODE_NAME"),
-    role = "bare-metal",
-  }
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  extra_labels    = { node = env("NODE_NAME"), role = "bare-metal" }
 }
 
-// ── Prometheus scrape: Geth native metrics ─────────────────
-// Exposes internal Go runtime, mempool, RPC latency, p2p
-
-prometheus.scrape "geth_metrics" {
+// EL native metrics (Geth, Nethermind, Besu all expose on :6060 by default)
+prometheus.scrape "el_native" {
   targets = [{
-    __address__ = "localhost:6060",
+    __address__      = "localhost:6060",
     __metrics_path__ = "/debug/metrics/prometheus",
   }]
-
-  job_name        = "geth"
+  job_name        = "el-native"
   scrape_interval = "15s"
   scrape_timeout  = "10s"
-
-  forward_to = [prometheus.remote_write.mimir.receiver]
-
-  extra_labels = {
-    node    = env("NODE_NAME"),
-    client  = "geth",
-    layer   = "execution",
-  }
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  extra_labels    = { node = env("NODE_NAME"), layer = "execution" }
 }
 
-// ── Prometheus scrape: Lighthouse native metrics ───────────
-// Exposes: validator duties, attestation performance, gossip
-
-prometheus.scrape "lighthouse_metrics" {
-  targets = [{
-    __address__ = "localhost:5054",
-  }]
-
-  job_name        = "lighthouse"
+// CL native metrics — Lighthouse (:5054), Teku (:8008)
+prometheus.scrape "cl_native_lighthouse" {
+  targets = [{"__address__" = "localhost:5054"}]
+  job_name        = "cl-native"
   scrape_interval = "15s"
   scrape_timeout  = "10s"
-
-  forward_to = [prometheus.remote_write.mimir.receiver]
-
-  extra_labels = {
-    node    = env("NODE_NAME"),
-    client  = "lighthouse",
-    layer   = "consensus",
-  }
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  extra_labels    = { node = env("NODE_NAME"), layer = "consensus", client = "lighthouse" }
 }
 
-// ── Prometheus scrape: Teku native metrics ─────────────────
-// Same endpoint pattern but different port — enabled if client=teku
-
-prometheus.scrape "teku_metrics" {
-  targets = [{
-    __address__ = "localhost:8008",
-  }]
-
-  job_name        = "teku"
+prometheus.scrape "cl_native_teku" {
+  targets = [{"__address__" = "localhost:8008"}]
+  job_name        = "cl-native-teku"
   scrape_interval = "15s"
   scrape_timeout  = "10s"
-
-  forward_to = [prometheus.remote_write.mimir.receiver]
-
-  extra_labels = {
-    node    = env("NODE_NAME"),
-    client  = "teku",
-    layer   = "consensus",
-  }
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  extra_labels    = { node = env("NODE_NAME"), layer = "consensus", client = "teku" }
 }
-
-// ── Prometheus scrape: Nethermind native metrics ───────────
-
-prometheus.scrape "nethermind_metrics" {
-  targets = [{
-    __address__ = "localhost:9091",
-  }]
-
-  job_name        = "nethermind"
-  scrape_interval = "15s"
-  scrape_timeout  = "10s"
-
-  forward_to = [prometheus.remote_write.mimir.receiver]
-
-  extra_labels = {
-    node    = env("NODE_NAME"),
-    client  = "nethermind",
-    layer   = "execution",
-  }
-}
-
-// ── Prometheus scrape: MEV-Boost ───────────────────────────
-// Exposes: relay bids received, payloads delivered, latency
 
 prometheus.scrape "mev_boost" {
-  targets = [{
-    __address__ = "localhost:18550",
-    __metrics_path__ = "/metrics",
-  }]
-
+  targets = [{"__address__" = "localhost:18550", "__metrics_path__" = "/metrics"}]
   job_name        = "mev-boost"
   scrape_interval = "15s"
   scrape_timeout  = "10s"
-
-  forward_to = [prometheus.remote_write.mimir.receiver]
-
-  extra_labels = {
-    node = env("NODE_NAME"),
-    role = "mev-boost",
-  }
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  extra_labels    = { node = env("NODE_NAME") }
 }
 
-// ── Prometheus scrape: ethagent self-metrics ───────────────
-// Exposes reconcile duration, action counts, phase, cordon state
-
 prometheus.scrape "ethagent" {
-  targets = [{
-    __address__ = "localhost:9000",
-    __metrics_path__ = "/metrics",
-  }]
-
+  targets = [{"__address__" = "localhost:9000", "__metrics_path__" = "/metrics"}]
   job_name        = "ethagent"
   scrape_interval = "30s"
   scrape_timeout  = "10s"
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  extra_labels    = { node = env("NODE_NAME") }
+}
 
+prometheus.scrape "alloy_self" {
+  targets    = [{"__address__" = "localhost:12345"}]
+  job_name   = "alloy"
   forward_to = [prometheus.remote_write.mimir.receiver]
-
-  extra_labels = {
-    node = env("NODE_NAME"),
-  }
+  extra_labels = { node = env("NODE_NAME") }
 }
 
 // ── Remote write: Mimir ────────────────────────────────────
@@ -206,33 +192,22 @@ prometheus.remote_write "mimir" {
     }
 
     write_relabel_config {
-      // Drop high-cardinality internal go runtime metrics we don't need
       source_labels = ["__name__"]
-      regex         = "go_(gc_duration_seconds_bucket|memstats_.*|goroutines)"
+      regex         = "go_(gc_duration_seconds_bucket|memstats_buck_hash_sys_bytes|memstats_debug_gc)"
       action        = "drop"
     }
   }
 
   external_labels = {
-    cluster  = env("CLUSTER_NAME"),
-    node     = env("NODE_NAME"),
-    env      = env("ENVIRONMENT"),
+    cluster = env("CLUSTER_NAME"),
+    node    = env("NODE_NAME"),
+    env     = env("ENVIRONMENT"),
   }
 }
 
-// ── Docker log collection ──────────────────────────────────
-// Ships logs from execution, consensus, and mev-boost containers
+// ── Docker log collection → Loki ───────────────────────────
 
-loki.source.docker "eth_containers" {
-  host    = "unix:///var/run/docker.sock"
-  targets = discovery.docker.eth.targets
-
-  forward_to = [loki.write.loki.receiver]
-
-  relabeling_rules = loki.relabel.docker_labels.rules
-}
-
-discovery.docker "eth" {
+discovery.docker "eth_containers" {
   host = "unix:///var/run/docker.sock"
 
   filter {
@@ -241,7 +216,15 @@ discovery.docker "eth" {
   }
 }
 
-loki.relabel "docker_labels" {
+loki.source.docker "eth_logs" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.docker.eth_containers.targets
+  forward_to = [loki.process.add_labels.receiver]
+
+  relabeling_rules = loki.relabel.container_name.rules
+}
+
+loki.relabel "container_name" {
   rule {
     source_labels = ["__meta_docker_container_name"]
     target_label  = "container"
@@ -251,23 +234,26 @@ loki.relabel "docker_labels" {
     source_labels = ["__meta_docker_container_image"]
     target_label  = "image"
   }
-  rule {
-    // Map container name to layer label
-    source_labels = ["container"]
-    target_label  = "layer"
-    regex         = "execution"
-    replacement   = "el"
-  }
-  rule {
-    source_labels = ["container"]
-    target_label  = "layer"
-    regex         = "consensus"
-    replacement   = "cl"
-  }
   forward_to = []
 }
 
-// ── Loki write ─────────────────────────────────────────────
+loki.process "add_labels" {
+  stage.static_labels {
+    values = {
+      node    = env("NODE_NAME"),
+      cluster = env("CLUSTER_NAME"),
+      env     = env("ENVIRONMENT"),
+    }
+  }
+  // Parse log level from common Ethereum client log formats
+  stage.regex {
+    expression = "(?P<level>TRACE|DEBUG|INFO|WARN|WARNING|ERROR|CRIT|FATAL)"
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  forward_to = [loki.write.loki.receiver]
+}
 
 loki.write "loki" {
   endpoint {
@@ -283,17 +269,5 @@ loki.write "loki" {
     cluster = env("CLUSTER_NAME"),
     node    = env("NODE_NAME"),
     env     = env("ENVIRONMENT"),
-  }
-}
-
-// ── Alloy self-monitoring ──────────────────────────────────
-
-prometheus.scrape "alloy_self" {
-  targets    = [{"__address__" = "localhost:12345"}]
-  job_name   = "alloy"
-  forward_to = [prometheus.remote_write.mimir.receiver]
-
-  extra_labels = {
-    node = env("NODE_NAME"),
   }
 }

@@ -1,0 +1,23 @@
+# ipmi_exporter configuration
+# Collects from the local IPMI/BMC interface.
+# Only useful if the bare metal server has IPMI support (most server-grade hardware does).
+#
+# Modules determine which IPMI data is collected.
+# Default target is "local" which reads from /dev/ipmi0.
+
+modules:
+  default:
+    # IPMI sensors: power, temperatures, fan speeds
+    collectors:
+      - bmc          # BMC firmware info
+      - ipmi         # Standard IPMI sensors (temps, power, fans)
+      - dcmi         # DCMI power readings (more accurate than IPMI power)
+      - chassis      # Chassis intrusion, power state
+      - sel          # System event log (errors)
+
+    # Sensor name exclusion — skip noisy/irrelevant sensors
+    # Adjust based on your hardware (iDRAC, iLO, IPMI variants differ)
+    exclude_sensor_ids: []
+
+    # How long to wait for IPMI response
+    timeout: 10s

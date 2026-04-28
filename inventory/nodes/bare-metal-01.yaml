@@ -12,20 +12,16 @@ profiles:
   - mev-standard
 
 spec:
-  # Node-level overrides on top of profiles
-  # Only specify what differs from the profiles
-
   execution:
-    # Pin this node to a specific patch version
     image: ethereum/client-go:v1.14.8
     flags:
-      # Extra cache for this beefy host
       cache: "8192"
+      # JWT secret path — shared with consensus layer
+      authrpc.jwtsecret: /data/jwtsecret
 
   consensus:
     image: sigp/lighthouse:v5.3.0
     flags:
-      # Node-specific JWT secret path (eth-docker default)
       execution-jwt: /data/jwtsecret
 
   system:
@@ -35,8 +31,14 @@ spec:
         fsType: ext4
         options: [noatime, nodiratime]
 
+  # JWT secret — generated once on first ethagent startup, never rotated automatically.
+  # Path is shared between EL and CL containers via host bind mount.
+  network:
+    firewall:
+      rules: []  # Additional node-specific rules on top of profile rules
+
   maintenance:
     window:
-      schedule: "0 2 * * 0"  # Sunday 2am UTC
+      schedule: "0 2 * * 0"
     autoUpgrade:
       enabled: false
