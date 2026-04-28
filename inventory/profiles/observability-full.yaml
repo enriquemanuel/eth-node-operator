@@ -4,50 +4,102 @@ spec:
     metrics:
       enabled: true
       scrapeInterval: 15s
+
+      # Scraped by Alloy — listed here for documentation and firewall rule generation
       exporters:
         - name: node-exporter
           port: 9100
           path: /metrics
+          description: "Host OS metrics: CPU, memory, disk, network, filesystem"
+
+        - name: ethereum-metrics-exporter
+          port: 9191
+          path: /metrics
+          description: "EL+CL protocol metrics: sync, finality, peers, txpool, blobs"
+
         - name: geth-metrics
           port: 6060
           path: /debug/metrics/prometheus
+          description: "Geth internal: mempool, RPC latency, p2p, chain head"
+
         - name: lighthouse-metrics
           port: 5054
           path: /metrics
+          description: "Lighthouse: attestations, duties, validator status, gossip"
+
+        - name: teku-metrics
+          port: 8008
+          path: /metrics
+          description: "Teku: validator duties, beacon chain, sync"
+
+        - name: nethermind-metrics
+          port: 9091
+          path: /metrics
+          description: "Nethermind: peers, sync, mempool"
+
         - name: mev-boost-metrics
           port: 18550
           path: /metrics
+          description: "MEV-Boost: relay bids, payload delivery, latency"
+
+        - name: alloy-self
+          port: 12345
+          path: /metrics
+          description: "Alloy pipeline health: scrape errors, queue depth"
+
+        - name: ethagent
+          port: 9000
+          path: /metrics
+          description: "ethagent: reconcile status, node phase, action counts"
+
       remoteWrite:
-        - url: http://mimir.monitoring.svc:9009/api/v1/push
-          secret: MIMIR_AUTH_TOKEN
+        - url: "${MIMIR_REMOTE_WRITE_URL}"
+          secret: MIMIR_AUTH
+
     logs:
       provider: alloy
       destinations:
         - type: loki
-          url: http://loki.monitoring.svc:3100/loki/api/v1/push
+          url: "${LOKI_URL}"
           enabled: true
         - type: datadog
           url: https://http-intake.logs.datadoghq.com
-          enabled: true
+          enabled: false
 
   network:
     firewall:
       rules:
-        - description: "Prometheus scrape from k8s cluster"
+        - description: "node-exporter scrape (docker bridge)"
           port: 9100
           proto: tcp
           direction: inbound
           source: "172.16.0.0/12"
           action: allow
-        - description: "Geth metrics from k8s cluster"
-          port: 6060
+
+        - description: "ethereum-metrics-exporter (docker bridge)"
+          port: 9191
           proto: tcp
           direction: inbound
           source: "172.16.0.0/12"
           action: allow
-        - description: "Lighthouse metrics from k8s cluster"
+
+        - description: "Geth metrics (localhost only)"
+          port: 6060
+          proto: tcp
+          direction: inbound
+          source: "127.0.0.1"
+          action: allow
+
+        - description: "Lighthouse metrics (localhost only)"
           port: 5054
           proto: tcp
           direction: inbound
-          source: "172.16.0.0/12"
+          source: "127.0.0.1"
+          action: allow
+
+        - description: "Alloy self-metrics (localhost only)"
+          port: 12345
+          proto: tcp
+          direction: inbound
+          source: "127.0.0.1"
           action: allow

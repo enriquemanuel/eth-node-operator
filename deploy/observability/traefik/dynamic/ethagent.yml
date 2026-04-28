@@ -1,0 +1,35 @@
+# Traefik dynamic configuration
+# Routes inbound HTTPS to the ethagent HTTP API running on :9000
+# Allows ethctl to reach the agent securely from the management network
+
+http:
+  routers:
+    ethagent:
+      rule: "Host(`${DOMAIN}`) && PathPrefix(`/`)"
+      entryPoints:
+        - websecure
+      service: ethagent
+      tls:
+        certResolver: cloudflare
+      middlewares:
+        - ethagent-headers
+
+  services:
+    ethagent:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:9000"
+        healthCheck:
+          path: /healthz
+          interval: "10s"
+          timeout: "3s"
+
+  middlewares:
+    ethagent-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        contentTypeNosniff: true
+        frameDeny: true
+        customResponseHeaders:
+          X-Robots-Tag: "noindex, nofollow"

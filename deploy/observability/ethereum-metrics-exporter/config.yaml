@@ -1,0 +1,56 @@
+# ethereum-metrics-exporter configuration
+# Source: https://github.com/ethpandaops/ethereum-metrics-exporter
+#
+# Exposes rich EL+CL metrics beyond what native client endpoints provide:
+#   - Sync status (is_syncing, sync_distance, head_slot)
+#   - Finality (finalized epoch, justified epoch, distance from head)
+#   - Peer counts (total, connected, disconnected)
+#   - Fork choice (head block hash, safe block, finalized block)
+#   - TX pool depth (pending, queued)
+#   - Blob sidecar counts
+#   - Docker container CPU/mem/disk per client
+
+consensus:
+  enabled: true
+  url: "http://localhost:5052"
+  name: "consensus"
+
+execution:
+  enabled: true
+  url: "http://localhost:8545"
+  name: "execution"
+  modules:
+    - eth       # block number, gas price, chain id
+    - net       # peer count, network id
+    - web3      # client version
+    - txpool    # pending and queued tx counts
+
+diskUsage:
+  enabled: true
+  interval: 5m
+  directories:
+    - /data/execution
+    - /data/consensus
+
+docker:
+  enabled: true
+  endpoint: "unix:///var/run/docker.sock"
+  interval: "15s"
+  labels:
+    containerName: true
+    containerID: false
+    imageName: true
+    imageTag: true
+  containers:
+    - name: "execution"
+      type: "execution"
+      filesystem:
+        enabled: true
+    - name: "consensus"
+      type: "consensus"
+      filesystem:
+        enabled: true
+    - name: "mev-boost"
+      type: "mev-boost"
+      filesystem:
+        enabled: false

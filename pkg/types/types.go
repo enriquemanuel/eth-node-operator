@@ -117,8 +117,10 @@ type MEVRelay struct {
 
 // ObservabilitySpec describes metrics and logging.
 type ObservabilitySpec struct {
-	Metrics MetricsSpec `yaml:"metrics"`
-	Logs    LogsSpec    `yaml:"logs"`
+	Metrics       MetricsSpec `yaml:"metrics"`
+	Logs          LogsSpec    `yaml:"logs"`
+	AlloyConfig   string      `yaml:"alloyConfig,omitempty"`   // path to alloy config on host
+	ObsStackDir   string      `yaml:"obsStackDir,omitempty"`   // dir for observability compose stack
 }
 
 type MetricsSpec struct {
