@@ -1,9 +1,9 @@
-name: ovh-bare-02
+name: bare-metal-02
 host: 10.1.1.2
 port: 9000
 labels:
-  region: eu-west-1
-  provider: ovh
+  region: eu-west
+  provider: bare-metal
   role: validator
   rack: "01"
 profiles:

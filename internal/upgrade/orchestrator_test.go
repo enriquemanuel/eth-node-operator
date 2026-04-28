@@ -81,11 +81,11 @@ func testOrchestrator(t *testing.T) *upgrade.Orchestrator {
 
 func TestRollingUpgrade_SingleNodeSuccess(t *testing.T) {
 	node := syncedNode()
-	nodes := map[string]upgrade.NodeClient{"ovh-01": node}
+	nodes := map[string]upgrade.NodeClient{"bare-metal-01": node}
 
 	o := testOrchestrator(t)
 	req := types.UpgradeRequest{
-		Nodes:          []string{"ovh-01"},
+		Nodes:          []string{"bare-metal-01"},
 		ELImage:        "ethereum/client-go:v1.14.9",
 		MaxUnavailable: 1,
 	}
@@ -101,11 +101,11 @@ func TestRollingUpgrade_SingleNodeSuccess(t *testing.T) {
 
 func TestRollingUpgrade_CordonsAndUncordons(t *testing.T) {
 	node := syncedNode()
-	nodes := map[string]upgrade.NodeClient{"ovh-01": node}
+	nodes := map[string]upgrade.NodeClient{"bare-metal-01": node}
 
 	o := testOrchestrator(t)
 	req := types.UpgradeRequest{
-		Nodes:          []string{"ovh-01"},
+		Nodes:          []string{"bare-metal-01"},
 		MaxUnavailable: 1,
 	}
 
@@ -122,11 +122,11 @@ func TestRollingUpgrade_PreflightFailsIfNotSynced(t *testing.T) {
 			CL: types.ClientStatus{Synced: true},
 		},
 	}
-	nodes := map[string]upgrade.NodeClient{"ovh-01": node}
+	nodes := map[string]upgrade.NodeClient{"bare-metal-01": node}
 
 	o := testOrchestrator(t)
 	req := types.UpgradeRequest{
-		Nodes:          []string{"ovh-01"},
+		Nodes:          []string{"bare-metal-01"},
 		MaxUnavailable: 1,
 		SkipPreflight:  false,
 	}
@@ -147,11 +147,11 @@ func TestRollingUpgrade_SkipPreflight(t *testing.T) {
 		reconcileResult:    &types.ReconcileResult{Actions: []string{"updated"}},
 		syncAfterReconcile: true, // flip to synced after TriggerReconcile
 	}
-	nodes := map[string]upgrade.NodeClient{"ovh-01": node}
+	nodes := map[string]upgrade.NodeClient{"bare-metal-01": node}
 
 	o := testOrchestrator(t)
 	req := types.UpgradeRequest{
-		Nodes:          []string{"ovh-01"},
+		Nodes:          []string{"bare-metal-01"},
 		MaxUnavailable: 1,
 		SkipPreflight:  true,
 	}
@@ -187,11 +187,11 @@ func TestRollingUpgrade_ReconcileError(t *testing.T) {
 	node := syncedNode()
 	node.reconcileResult = nil
 	node.reconcileErr = fmt.Errorf("docker pull failed")
-	nodes := map[string]upgrade.NodeClient{"ovh-01": node}
+	nodes := map[string]upgrade.NodeClient{"bare-metal-01": node}
 
 	o := testOrchestrator(t)
 	req := types.UpgradeRequest{
-		Nodes:          []string{"ovh-01"},
+		Nodes:          []string{"bare-metal-01"},
 		MaxUnavailable: 1,
 	}
 
@@ -205,13 +205,13 @@ func TestRollingUpgrade_RespectsMaxUnavailable(t *testing.T) {
 	node1 := syncedNode()
 	node2 := syncedNode()
 	nodes := map[string]upgrade.NodeClient{
-		"ovh-01": node1,
-		"ovh-02": node2,
+		"bare-metal-01": node1,
+		"bare-metal-02": node2,
 	}
 
 	o := testOrchestrator(t)
 	req := types.UpgradeRequest{
-		Nodes:          []string{"ovh-01", "ovh-02"},
+		Nodes:          []string{"bare-metal-01", "bare-metal-02"},
 		MaxUnavailable: 1,
 	}
 
@@ -228,14 +228,14 @@ func TestRollingUpgrade_RespectsMaxUnavailable(t *testing.T) {
 
 func TestRollingUpgrade_ContextCancellation(t *testing.T) {
 	node := syncedNode()
-	nodes := map[string]upgrade.NodeClient{"ovh-01": node}
+	nodes := map[string]upgrade.NodeClient{"bare-metal-01": node}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
 	o := testOrchestrator(t)
 	req := types.UpgradeRequest{
-		Nodes:          []string{"ovh-01"},
+		Nodes:          []string{"bare-metal-01"},
 		MaxUnavailable: 1,
 	}
 

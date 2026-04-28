@@ -17,8 +17,8 @@ func writeFile(t *testing.T, dir, name, content string) {
 
 func TestLoadNode_BasicNode(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "ovh-01.yaml", `
-name: ovh-bare-01
+	writeFile(t, dir, "bare-metal-01.yaml", `
+name: bare-metal-01
 host: 10.1.1.1
 spec:
   execution:
@@ -29,13 +29,13 @@ spec:
     image: sigp/lighthouse:v5.3.0
 `)
 
-	node, err := inventory.LoadNode(filepath.Join(dir, "ovh-01.yaml"))
+	node, err := inventory.LoadNode(filepath.Join(dir, "bare-metal-01.yaml"))
 	if err != nil {
 		t.Fatalf("load node: %v", err)
 	}
 
-	if node.Name != "ovh-bare-01" {
-		t.Errorf("expected name ovh-bare-01, got %s", node.Name)
+	if node.Name != "bare-metal-01" {
+		t.Errorf("expected name bare-metal-01, got %s", node.Name)
 	}
 	if node.Host != "10.1.1.1" {
 		t.Errorf("expected host 10.1.1.1, got %s", node.Host)
@@ -106,8 +106,8 @@ spec:
     image: sigp/lighthouse:v5.3.0
 `)
 
-	writeFile(t, nodesDir, "ovh-01.yaml", `
-name: ovh-01
+	writeFile(t, nodesDir, "bare-metal-01.yaml", `
+name: bare-metal-01
 host: 10.1.1.1
 profiles:
   - mainnet-base

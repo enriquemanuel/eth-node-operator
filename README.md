@@ -20,7 +20,7 @@ GitOps-style operator for managing Ethereum bare metal nodes. Replaces manual An
               ▼                            ▼
    ┌─────────────────┐          ┌─────────────────┐
    │  ethagent       │          │  ethagent        │
-   │  ovh-bare-01    │          │  ovh-bare-02     │
+   │  bare-metal-01    │          │  bare-metal-02     │
    │  :9000          │          │  :9000           │
    │                 │          │                  │
    │  reconciler     │          │  reconciler      │
@@ -51,7 +51,7 @@ GitOps-style operator for managing Ethereum bare metal nodes. Replaces manual An
 
 ```bash
 # 1. Copy your node spec
-cp inventory/nodes/ovh-bare-01.yaml inventory/nodes/your-node.yaml
+cp inventory/nodes/bare-metal-01.yaml inventory/nodes/your-node.yaml
 # edit: name, host, profiles, any overrides
 
 # 2. Bootstrap with Ansible (one-time)
@@ -68,27 +68,27 @@ ethctl nodes list
 ethctl nodes list
 
 # Describe a single node in detail
-ethctl nodes describe ovh-bare-01
+ethctl nodes describe bare-metal-01
 
 # Force reconcile (apply desired state immediately)
-ethctl sync ovh-bare-01
+ethctl sync bare-metal-01
 
 # Show drift between desired and actual state
-ethctl diff ovh-bare-01
+ethctl diff bare-metal-01
 
 # Stream logs from the EL
-ethctl logs ovh-bare-01 --client el --follow
+ethctl logs bare-metal-01 --client el --follow
 
 # Restart the CL on a node
-ethctl restart ovh-bare-01 --client cl
+ethctl restart bare-metal-01 --client cl
 
 # Cordon a node (pause reconciliation for maintenance)
-ethctl cordon ovh-bare-01 --reason "disk replacement"
-ethctl uncordon ovh-bare-01
+ethctl cordon bare-metal-01 --reason "disk replacement"
+ethctl uncordon bare-metal-01
 
 # Rolling upgrade (update inventory YAML first, then run)
 ethctl upgrade --el ethereum/client-go:v1.14.9
-ethctl upgrade ovh-bare-01 ovh-bare-02 --cl sigp/lighthouse:v5.4.0
+ethctl upgrade bare-metal-01 bare-metal-02 --cl sigp/lighthouse:v5.4.0
 ```
 
 ## Inventory Structure
@@ -96,8 +96,8 @@ ethctl upgrade ovh-bare-01 ovh-bare-02 --cl sigp/lighthouse:v5.4.0
 ```
 inventory/
 ├── nodes/
-│   ├── ovh-bare-01.yaml    ← per-node spec + profile references
-│   └── ovh-bare-02.yaml
+│   ├── bare-metal-01.yaml    ← per-node spec + profile references
+│   └── bare-metal-02.yaml
 ├── profiles/
 │   ├── mainnet-base.yaml   ← shared EL/CL images, kernel params, firewall
 │   ├── observability-full.yaml  ← Prometheus exporters, Loki/Datadog shipping
@@ -111,7 +111,7 @@ inventory/
 Later profiles win over earlier ones. Node-level spec always wins over profiles.
 
 ```yaml
-# ovh-bare-01.yaml
+# bare-metal-01.yaml
 profiles:
   - mainnet-base         # sets geth:v1.14.8, lighthouse:v5.3.0, firewall rules
   - observability-full   # adds metrics exporters, log destinations
@@ -189,7 +189,7 @@ make build
 # Cross-compile for linux/amd64 (for deployment)
 make release-linux
 
-# Run agent locally (reads inventory/nodes/ovh-bare-01.yaml)
+# Run agent locally (reads inventory/nodes/bare-metal-01.yaml)
 make run-agent
 ```
 
@@ -200,7 +200,7 @@ make run-agent
 make release-linux
 
 # Deploy to a host
-ansible-playbook -i hosts.ini deploy/ansible/bootstrap.yaml --limit ovh-bare-01
+ansible-playbook -i hosts.ini deploy/ansible/bootstrap.yaml --limit bare-metal-01
 ```
 
 The Ansible playbook:

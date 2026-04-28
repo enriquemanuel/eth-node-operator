@@ -90,7 +90,7 @@ install-systemd: install-agent
 
 run-agent:
 	go run ./cmd/agent \
-		--spec=inventory/nodes/ovh-bare-01.yaml \
+		--spec=inventory/nodes/bare-metal-01.yaml \
 		--listen=:9000 \
 		--log-level=debug
 
