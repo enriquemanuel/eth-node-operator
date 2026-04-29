@@ -1,0 +1,31 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Route53ARecordManagement",
+      "Effect": "Allow",
+      "Action": [
+        "route53:ChangeResourceRecordSets",
+        "route53:ListResourceRecordSets"
+      ],
+      "Resource": "arn:aws:route53:::hostedzone/REPLACE_WITH_YOUR_ZONE_ID",
+      "Condition": {
+        "StringEquals": {
+          "route53:ChangeAction": ["CREATE", "UPSERT", "DELETE"]
+        },
+        "ForAllValues:StringEquals": {
+          "route53:ChangeResourceRecordSetsRecordTypes": ["A"]
+        }
+      }
+    },
+    {
+      "Sid": "Route53ListHostedZones",
+      "Effect": "Allow",
+      "Action": [
+        "route53:ListHostedZones",
+        "route53:GetChange"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

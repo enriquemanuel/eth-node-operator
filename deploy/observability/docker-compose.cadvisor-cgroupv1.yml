@@ -1,0 +1,14 @@
+# docker-compose.cadvisor-cgroupv1.yml
+# cgroup v1 override — used on Ubuntu 20.04 and older kernels.
+# cAdvisor needs privileged: true on cgroup v1 to access container stats.
+#
+# Blast radius: if cAdvisor is compromised, attacker gets root on host.
+# Mitigation: pin image to a specific digest, watch CVEs for cAdvisor.
+#
+# Usage: docker compose -f docker-compose.observability.yml -f docker-compose.cadvisor-cgroupv1.yml up -d
+
+services:
+  cadvisor:
+    privileged: true
+    security_opt:
+      - no-new-privileges:true   # limit even within privileged

@@ -59,6 +59,11 @@ nodes:
         vcGateways:
           - "18.x.x.x/32"   # EKS us-east-1a NAT gateway EIP
           - "52.x.x.x/32"   # EKS us-east-1b NAT gateway EIP
+        # Restrict ethagent :19000 to your bastion/jump host only.
+        # This plus the API key = two independent layers of protection.
+        # Find your bastion IP: dig +short mybastion.example.com
+        managementCIDRs:
+          - "10.1.0.5/32"   # bastion host
       snapshot:
         provider: self-hosted
         url: http://10.1.1.10:8888
@@ -78,6 +83,8 @@ nodes:
         vcGateways:
           - "18.x.x.x/32"
           - "52.x.x.x/32"
+        managementCIDRs:
+          - "10.1.0.5/32"   # bastion host
       snapshot:
         provider: self-hosted
         url: http://10.1.1.10:8888

@@ -1,0 +1,15 @@
+# docker-compose.cadvisor-cgroupv2.yml
+# cgroup v2 override — used on Ubuntu 22.04+ and kernel >= 5.8 with unified hierarchy.
+# cAdvisor can run without privileged mode using only the capabilities it needs.
+#
+# Usage: docker compose -f docker-compose.observability.yml -f docker-compose.cadvisor-cgroupv2.yml up -d
+
+services:
+  cadvisor:
+    privileged: false
+    cap_add:
+      - SYS_PTRACE        # read /proc/<pid>/net stats
+      - DAC_READ_SEARCH   # read container filesystems for disk usage
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:unconfined  # cgroup v2 stat calls need this on some kernels

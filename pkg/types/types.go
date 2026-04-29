@@ -87,11 +87,16 @@ type NetworkSpec struct {
 	DNS        DNSSpec      `yaml:"dns"`
 	Firewall   FirewallSpec `yaml:"firewall"`
 	Route53    Route53Spec  `yaml:"route53"`
-	// VCGateways is the list of EKS NAT gateway IPs or CIDRs allowed to
-	// reach :5052 (beacon node HTTP API) directly over the public internet.
-	// The agent generates one UFW rule per entry.
+	// VCGateways is the list of EKS NAT gateway IPs/CIDRs allowed to reach
+	// :5052 (beacon API). Agent generates one UFW rule per entry.
 	// Example: ["18.x.x.x/32", "52.x.x.x/32"]
 	VCGateways []string `yaml:"vcGateways"`
+	// ManagementCIDRs is the list of IPs/CIDRs allowed to reach the ethagent
+	// API on :19000 (ethctl, CI/CD, bastion host).
+	// Keep this as narrow as possible — your bastion/jump host IP is ideal.
+	// The API key provides authentication; this provides network-layer isolation.
+	// Example: ["10.1.0.5/32"]  (single bastion IP)
+	ManagementCIDRs []string `yaml:"managementCIDRs"`
 }
 
 // Route53Spec configures public DNS A-record registration for this node.

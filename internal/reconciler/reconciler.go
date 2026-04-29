@@ -94,7 +94,36 @@ func (r *Reconciler) Reconcile(ctx context.Context, desired types.NodeSpec) (*ty
 		}
 	}
 
-	// 4b. VC gateway :5052 firewall rules (EKS NAT IPs → beacon API)
+	// 4b. Management CIDR firewall rules for ethagent :19000
+	// If ManagementCIDRs is set, restrict ethagent access to only those sources.
+	// This replaces or supplements the broad 10.0.0.0/8 rule in mainnet-base.
+	if len(desired.Network.ManagementCIDRs) > 0 {
+		mgmtRules := make([]types.FirewallRule, 0, len(desired.Network.Firewall.Rules))
+		for _, r := range desired.Network.Firewall.Rules {
+			// Remove any existing broad ethagent :19000 rule
+			if r.Port == types.AgentPort && r.Proto == "tcp" {
+				continue
+			}
+			mgmtRules = append(mgmtRules, r)
+		}
+		for _, cidr := range desired.Network.ManagementCIDRs {
+			mgmtRules = append(mgmtRules, types.FirewallRule{
+				Description: "ethagent API (management)",
+				Port:        types.AgentPort,
+				Proto:       "tcp",
+				Direction:   "inbound",
+				Source:      cidr,
+				Action:      "allow",
+			})
+		}
+		mgmtSpec := desired.Network.Firewall
+		mgmtSpec.Rules = mgmtRules
+		if err := r.reconcileFirewall(ctx, mgmtSpec); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("management-firewall: %v", err))
+		}
+	}
+
+	// 4c. VC gateway :5052 firewall rules (EKS NAT IPs → beacon API)
 	// Build a separate spec so we don't mutate the passed-in desired (race safety).
 	if len(desired.Network.VCGateways) > 0 {
 		vcRules := make([]types.FirewallRule, len(desired.Network.Firewall.Rules))

@@ -57,7 +57,43 @@
         enabled: yes
         state: started
 
-    # ── 2. ethagent binary ────────────────────────────────
+    # ── 2. Secure sensitive files ─────────────────────────
+    # Enforce 0600 on files containing secrets. Runs unconditionally —
+    # safe to run before the files exist (failed_when: false).
+    # File permissions default to 0644 on creation which is world-readable.
+    - name: Secure observability .env (Mimir/Loki/AWS credentials)
+      file:
+        path: /opt/eth-observability/.env
+        mode: "0600"
+        owner: root
+        group: root
+      failed_when: false
+
+    - name: Secure ethagent environment file
+      file:
+        path: /etc/ethagent/env
+        mode: "0600"
+        owner: root
+        group: root
+      failed_when: false
+
+    - name: Secure ethagent API key
+      file:
+        path: /etc/ethagent/api-key
+        mode: "0600"
+        owner: root
+        group: root
+      failed_when: false
+
+    - name: Secure JWT secret
+      file:
+        path: /data/jwtsecret
+        mode: "0600"
+        owner: root
+        group: root
+      failed_when: false
+
+    # ── 3. ethagent binary ────────────────────────────────
     - name: Create config directory
       file:
         path: "{{ ethagent_config_dir }}"

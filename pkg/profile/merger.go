@@ -200,6 +200,11 @@ func mergeSpecs(dst, src types.NodeSpec) types.NodeSpec {
 		dst.Network.VCGateways = append(dst.Network.VCGateways, src.Network.VCGateways...)
 	}
 
+	// ManagementCIDRs (additive)
+	if len(src.Network.ManagementCIDRs) > 0 {
+		dst.Network.ManagementCIDRs = append(dst.Network.ManagementCIDRs, src.Network.ManagementCIDRs...)
+	}
+
 	// Snapshot
 	if src.Snapshot.Enabled {
 		dst.Snapshot.Enabled = true
