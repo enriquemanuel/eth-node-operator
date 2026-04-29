@@ -1,0 +1,47 @@
+name: snapshot-server
+# Snapshot server profile — for a dedicated node that takes periodic
+# snapshots of its EL and CL datadirs and serves them to other nodes.
+#
+# Architecture:
+#   snapshot-server node                 all other nodes
+#   ┌─────────────────────┐             ┌──────────────────────────┐
+#   │ geth + lighthouse   │             │ spec.snapshot:           │
+#   │ full synced node    │   HTTP      │   provider: self-hosted  │
+#   │ snapshot-server     ├────────────►│   url: http://10.x.x.x  │
+#   │   :8888             │             │   network: mainnet       │
+#   └─────────────────────┘             └──────────────────────────┘
+#
+# The snapshot-server:
+#   1. Runs a full geth+lighthouse node (or any pair via client profiles)
+#   2. Every 24h: stops clients → tar.zst → restart → serves via HTTP
+#   3. Keeps last 3 snapshots per client, prunes older ones
+#   4. Exposes ethpandaops-compatible API on :8888
+#
+# Usage: add to a dedicated node in the cluster file
+#   - name: snapshot-server-01
+#     host: 10.1.1.10
+#     profiles: [mainnet-base, geth-lighthouse, snapshot-server]
+#
+# Then point other nodes at it:
+#   spec:
+#     snapshot:
+#       provider: self-hosted
+#       url: http://10.1.1.10:8888
+spec:
+  observability:
+    metrics:
+      exporters:
+        - name: snapshot-server
+          port: 8888
+          path: /healthz
+          description: "Snapshot server liveness"
+
+  network:
+    firewall:
+      rules:
+        - description: "Snapshot server HTTP (internal cluster only)"
+          port: 8888
+          proto: tcp
+          direction: inbound
+          source: "10.0.0.0/8"
+          action: allow

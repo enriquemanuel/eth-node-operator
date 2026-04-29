@@ -39,23 +39,23 @@ spec:
       rpc-host: "127.0.0.1"
       rpc-port: "4000"
       grpc-gateway-host: "127.0.0.1"
-      grpc-gateway-port: "3500"
+      grpc-gateway-port: "5052"
       monitoring-host: "127.0.0.1"
-      monitoring-port: "8080"
+      monitoring-port: "5054"
       p2p-tcp-port: "9000"
       p2p-udp-port: "9000"
       p2p-max-peers: "100"
       accept-terms-of-use: "true"
     ports:
-      http: 3500
+      http: 5052
       p2p: 9000
-      metrics: 8080
+      metrics: 5054
 
   network:
     firewall:
       rules:
         - description: "Prysm metrics (localhost only)"
-          port: 8080
+          port: 5054
           proto: tcp
           direction: inbound
           source: "127.0.0.1"

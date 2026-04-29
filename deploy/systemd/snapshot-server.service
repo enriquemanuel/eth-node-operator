@@ -1,0 +1,39 @@
+[Unit]
+Description=eth-node-operator snapshot server
+Documentation=https://github.com/enriquemanuel/eth-node-operator
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/bin/snapshot-server \
+    --listen=:8888 \
+    --root=/data/snapshots \
+    --make \
+    --network=mainnet \
+    --el-client=${EL_CLIENT:-geth} \
+    --cl-client=${CL_CLIENT:-lighthouse} \
+    --el-container=execution \
+    --cl-container=consensus \
+    --el-datadir=/data/execution \
+    --cl-datadir=/data/consensus \
+    --el-rpc=http://127.0.0.1:8545 \
+    --cl-rpc=http://127.0.0.1:5052 \
+    --schedule=24h \
+    --keep=3
+
+Restart=on-failure
+RestartSec=30s
+TimeoutStopSec=30s
+
+EnvironmentFile=-/etc/snapshot-server/env
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=snapshot-server
+
+[Install]
+WantedBy=multi-user.target

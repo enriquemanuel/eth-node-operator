@@ -37,9 +37,9 @@ spec:
       rest-api-port: "5052"
       metrics-enabled: "true"
       metrics-interface: "127.0.0.1"
-      metrics-port: "8008"
+      metrics-port: "5054"
       p2p-port: "9000"
     ports:
       http: 5052
       p2p: 9000
-      metrics: 8008
+      metrics: 5054

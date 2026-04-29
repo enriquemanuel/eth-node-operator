@@ -30,12 +30,20 @@ type NodeSpec struct {
 // it downloads and extracts the latest snapshot from the configured provider.
 type SnapshotSpec struct {
 	Enabled     bool   `yaml:"enabled"`
-	Provider    string `yaml:"provider"`    // ethpandaops (default)
+	// Provider: "ethpandaops" (default) or "self-hosted"
+	Provider    string `yaml:"provider"`
 	Network     string `yaml:"network"`     // mainnet | sepolia | hoodi | holesky
 	ELEnabled   bool   `yaml:"elEnabled"`   // download EL snapshot
 	CLEnabled   bool   `yaml:"clEnabled"`   // download CL snapshot
 	// BlockNumber pins a specific snapshot. Leave empty to use latest.
 	BlockNumber string `yaml:"blockNumber,omitempty"`
+	// URL is the base URL of a self-hosted snapshot server.
+	// Only used when Provider == "self-hosted".
+	// Format: http://snapshots.internal:8888
+	// The server must implement the ethpandaops-compatible API:
+	//   GET /{network}/{client}/latest  → block number
+	//   GET /{network}/{client}/{block}/snapshot.tar.zst → archive
+	URL         string `yaml:"url,omitempty"`
 }
 
 // ValidatorSpec describes the local validator client configuration.
@@ -329,6 +337,35 @@ type UpgradeRequest struct {
 	MaxUnavailable int      `json:"maxUnavailable"`
 	SkipPreflight  bool     `json:"skipPreflight"`
 }
+
+// StandardPorts defines the canonical port assignments used across all
+// client implementations. Profiles enforce these via client flags so
+// Alloy, firewall rules, and ethctl can use hardcoded port constants.
+type StandardPorts struct{}
+
+const (
+	// Execution layer
+	ELHTTPPort    = 8545
+	ELWSPort      = 8546
+	ELAuthRPCPort = 8551
+	ELMetricsPort = 6060
+	ELP2PPort     = 30303
+
+	// Consensus layer (all clients normalised to these)
+	CLHTTPPort    = 5052
+	CLP2PPort     = 9000
+	CLMetricsPort = 5054
+
+	// Validator client
+	VCHTTPPort    = 5062
+	VCMetricsPort = 5064
+
+	// MEV-Boost
+	MEVPort = 18550
+
+	// ethagent
+	AgentPort = 9000
+)
 
 // Profile is a reusable partial NodeSpec.
 type Profile struct {

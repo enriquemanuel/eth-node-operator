@@ -1,53 +1,81 @@
 name: mainnet-validators
 description: >
   Production Ethereum validator infrastructure.
-  Infrastructure + snapshot + validator profiles apply to all nodes.
-  Each node picks exactly one client pair. Adding a node = 2 lines.
+  Includes a dedicated snapshot server so nodes sync from internal storage.
 
 profiles:
-  - mainnet-base           # kernel, disk (RAID0), firewall, packages
-  - observability-full     # Alloy + all exporters
-  - mev-standard           # mev-boost + relay list
-  - snapshot-restore       # stream latest snapshot if datadir is empty
-  - lighthouse-vc-web3signer  # Lighthouse VC → Web3Signer for 45k keys
+  - mainnet-base
+  - observability-full
+  - mev-standard
+  - lighthouse-vc-web3signer
 
 defaultPort: 9000
 
 nodes:
-  # Best practice: no single client pair > 33% of your validator set.
-  # Spread EL and CL independently. The lighthouse-vc connects to all BNs
-  # via standard Beacon API regardless of which CL client they run.
+  # ── Snapshot server ─────────────────────────────────────────────────
+  # One dedicated node that stays fully synced, takes daily snapshots,
+  # and serves them to all other nodes. Saves downloading from ethpandaops
+  # repeatedly (especially important when spinning up many nodes at once).
+  - name: snapshot-server-01
+    host: 10.1.1.10
+    labels: { role: snapshot-server }
+    profiles: [geth-lighthouse, snapshot-server]
+    # snapshot-server nodes do NOT run validators or MEV-Boost
+    spec:
+      mev:
+        enabled: false
+      validator:
+        enabled: false
+      snapshot:
+        enabled: false   # this node IS the source, not a consumer
+
+  # ── Validator nodes ─────────────────────────────────────────────────
+  # All consume snapshots from the internal snapshot server.
+  # No ethpandaops download needed after snapshot-server-01 is synced.
 
   - name: bare-metal-01
     host: 10.1.1.1
     labels: { rack: "01" }
     profiles: [geth-lighthouse]
     spec:
+      snapshot:
+        provider: self-hosted
+        url: http://10.1.1.10:8888
+        network: mainnet
+        elEnabled: true
+        clEnabled: true
       validator:
         beaconNodes:
-          - http://127.0.0.1:5052       # local lighthouse BN (primary)
-          - http://10.1.1.2:5052        # bare-metal-02 teku BN (fallback)
+          - http://127.0.0.1:5052
+          - http://10.1.1.2:5052
 
   - name: bare-metal-02
     host: 10.1.1.2
     labels: { rack: "01" }
     profiles: [nethermind-teku]
     spec:
+      snapshot:
+        provider: self-hosted
+        url: http://10.1.1.10:8888
+        network: mainnet
+        elEnabled: true
+        clEnabled: true
       validator:
         beaconNodes:
-          - http://127.0.0.1:5052       # local teku BN (primary)
-          - http://10.1.1.1:5052        # bare-metal-01 lighthouse BN (fallback)
+          - http://127.0.0.1:5052
+          - http://10.1.1.1:5052
       maintenance:
         window:
-          schedule: "0 3 * * 0"        # offset 1h from bare-metal-01
+          schedule: "0 3 * * 0"
 
-  # ── Template: copy + fill name/host/profiles ────────────────────────
+  # ── Template: new validator node (2 lines) ───────────────────────────
   # - name: bare-metal-03
   #   host: 10.1.1.3
-  #   labels: { rack: "02" }
-  #   profiles: [reth-lighthouse]      # fastest sync via snapshot
+  #   profiles: [reth-lighthouse]
   #   spec:
-  #     validator:
-  #       beaconNodes:
-  #         - http://127.0.0.1:5052
-  #         - http://10.1.1.1:5052
+  #     snapshot:
+  #       provider: self-hosted
+  #       url: http://10.1.1.10:8888
+  #       network: mainnet
+  #       elEnabled: true
+  #       clEnabled: true

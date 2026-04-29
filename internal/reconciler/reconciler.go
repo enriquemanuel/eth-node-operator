@@ -121,7 +121,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, desired types.NodeSpec) (*ty
 
 func (r *Reconciler) reconcileSnapshot(ctx context.Context, desired types.NodeSpec) ([]string, error) {
 	var actions []string
-	d := snapshot.New()
+
+	// Pick the right snapshot base URL
+	var d *snapshot.Downloader
+	if desired.Snapshot.Provider == "self-hosted" && desired.Snapshot.URL != "" {
+		d = snapshot.NewWithBase(desired.Snapshot.URL)
+	} else {
+		d = snapshot.New()
+	}
+
 	network := desired.Snapshot.Network
 	if network == "" {
 		network = "mainnet"
