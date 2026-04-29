@@ -9,40 +9,52 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Loader loads profiles from a directory.
+// Loader loads profiles from a directory tree (recursive).
 type Loader struct {
 	dir string
 }
 
-// NewLoader returns a Loader that reads profiles from dir.
+// NewLoader returns a Loader that reads profiles from dir and all subdirectories.
 func NewLoader(dir string) *Loader {
 	return &Loader{dir: dir}
 }
 
-// Load reads all profiles and returns them keyed by name.
+// Load reads all profiles from the directory tree and returns them keyed by name.
+// Subdirectories are walked recursively — put client pairs in profiles/clients/,
+// feature profiles in profiles/, etc.
 func (l *Loader) Load() (map[string]types.Profile, error) {
 	profiles := make(map[string]types.Profile)
 
-	entries, err := os.ReadDir(l.dir)
-	if err != nil {
-		return nil, fmt.Errorf("read profiles dir %s: %w", l.dir, err)
-	}
-
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".yaml" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(l.dir, e.Name()))
+	err := filepath.WalkDir(l.dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil, fmt.Errorf("read profile %s: %w", e.Name(), err)
+			return err
+		}
+		if d.IsDir() {
+			return nil // recurse into subdirs
+		}
+		if filepath.Ext(d.Name()) != ".yaml" {
+			return nil
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read profile %s: %w", path, err)
 		}
 		var p types.Profile
 		if err := yaml.Unmarshal(data, &p); err != nil {
-			return nil, fmt.Errorf("parse profile %s: %w", e.Name(), err)
+			return fmt.Errorf("parse profile %s: %w", path, err)
+		}
+		if p.Name == "" {
+			return fmt.Errorf("profile %s has no name field", path)
+		}
+		if _, exists := profiles[p.Name]; exists {
+			return fmt.Errorf("duplicate profile name %q (found in %s)", p.Name, path)
 		}
 		profiles[p.Name] = p
-	}
-	return profiles, nil
+		return nil
+	})
+
+	return profiles, err
 }
 
 // Merge applies a list of named profiles to a base NodeSpec, then applies
@@ -76,7 +88,7 @@ func mergeSpecs(dst, src types.NodeSpec) types.NodeSpec {
 			dst.System.Kernel.Parameters[k] = v
 		}
 	}
-	if len(src.System.Disk) > 0 {
+	if src.System.Disk.MountPath != "" {
 		dst.System.Disk = src.System.Disk
 	}
 
@@ -134,6 +146,9 @@ func mergeSpecs(dst, src types.NodeSpec) types.NodeSpec {
 			dst.Consensus.Flags[k] = v
 		}
 	}
+	if src.Consensus.Ports.HTTP != 0 {
+		dst.Consensus.Ports = src.Consensus.Ports
+	}
 
 	// MEV
 	if src.MEV.Enabled {
@@ -164,6 +179,9 @@ func mergeSpecs(dst, src types.NodeSpec) types.NodeSpec {
 	}
 	if len(src.Observability.Logs.Destinations) > 0 {
 		dst.Observability.Logs.Destinations = src.Observability.Logs.Destinations
+	}
+	if src.Observability.StackDir != "" {
+		dst.Observability.StackDir = src.Observability.StackDir
 	}
 
 	// Maintenance

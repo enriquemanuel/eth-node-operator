@@ -25,9 +25,9 @@ type NodeSpec struct {
 
 // SystemSpec describes OS-level configuration.
 type SystemSpec struct {
-	Packages []PackageSpec     `yaml:"packages"`
-	Kernel   KernelSpec        `yaml:"kernel"`
-	Disk     []DiskSpec        `yaml:"disk"`
+	Packages []PackageSpec `yaml:"packages"`
+	Kernel   KernelSpec    `yaml:"kernel"`
+	Disk     DiskSpec      `yaml:"disk"`
 }
 
 type PackageSpec struct {
@@ -39,18 +39,31 @@ type KernelSpec struct {
 	Parameters map[string]string `yaml:"parameters"`
 }
 
+// DiskSpec describes how to discover, assemble, format, and mount data disks.
+// The agent applies this idempotently — safe to run on an already-provisioned node.
 type DiskSpec struct {
-	Device    string   `yaml:"device"`
-	MountPath string   `yaml:"mountPath"`
-	FsType    string   `yaml:"fsType"`
-	Options   []string `yaml:"options"`
+	// Devices: "auto" discovers all unpartitioned block devices,
+	// or an explicit list like [/dev/nvme0n1, /dev/nvme1n1].
+	Devices []string `yaml:"devices"` // empty = auto-discover
+
+	// RaidLevel: 0 = RAID0 stripe (default for multi-disk), -1 = no RAID.
+	// Ignored when only one device is present.
+	RaidLevel int `yaml:"raidLevel"`
+
+	// ArrayDevice is the resulting md device, e.g. /dev/md0.
+	// Only used when RaidLevel >= 0 and multiple devices exist.
+	ArrayDevice string `yaml:"arrayDevice"` // default: /dev/md0
+
+	MountPath string   `yaml:"mountPath"` // e.g. /data
+	FsType    string   `yaml:"fsType"`    // ext4 | xfs
+	Options   []string `yaml:"options"`   // e.g. [noatime, nodiratime]
 }
 
 // NetworkSpec describes firewall and DNS configuration.
 type NetworkSpec struct {
-	DNS      DNSSpec       `yaml:"dns"`
-	Firewall FirewallSpec  `yaml:"firewall"`
-	TLS      TLSSpec       `yaml:"tls"`
+	DNS      DNSSpec      `yaml:"dns"`
+	Firewall FirewallSpec `yaml:"firewall"`
+	TLS      TLSSpec      `yaml:"tls"`
 }
 
 type DNSSpec struct {
@@ -67,8 +80,8 @@ type FirewallSpec struct {
 type FirewallRule struct {
 	Description string `yaml:"description"`
 	Port        int    `yaml:"port"`
-	Proto       string `yaml:"proto"` // tcp | udp | any
-	Direction   string `yaml:"direction"` // inbound | outbound
+	Proto       string `yaml:"proto"`      // tcp | udp | any
+	Direction   string `yaml:"direction"`  // inbound | outbound
 	Source      string `yaml:"source,omitempty"`
 	Destination string `yaml:"destination,omitempty"`
 	Action      string `yaml:"action"` // allow | deny
@@ -82,12 +95,12 @@ type TLSSpec struct {
 
 // ClientSpec describes an EL or CL client container.
 type ClientSpec struct {
-	Client  string            `yaml:"client"`
-	Image   string            `yaml:"image"`
-	DataDir string            `yaml:"dataDir"`
-	Flags   map[string]string `yaml:"flags"`
-	Resources ResourceSpec    `yaml:"resources"`
-	Ports   ClientPorts       `yaml:"ports"`
+	Client    string            `yaml:"client"`
+	Image     string            `yaml:"image"`
+	DataDir   string            `yaml:"dataDir"`
+	Flags     map[string]string `yaml:"flags"`
+	Resources ResourceSpec      `yaml:"resources"`
+	Ports     ClientPorts       `yaml:"ports"`
 }
 
 type ResourceSpec struct {
@@ -115,26 +128,31 @@ type MEVRelay struct {
 	OFACFiltered bool   `yaml:"ofacFiltered"`
 }
 
-// ObservabilitySpec describes metrics and logging.
+// ObservabilitySpec describes metrics, logging, and the on-host stack.
 type ObservabilitySpec struct {
-	Metrics       MetricsSpec `yaml:"metrics"`
-	Logs          LogsSpec    `yaml:"logs"`
-	AlloyConfig   string      `yaml:"alloyConfig,omitempty"`   // path to alloy config on host
-	ObsStackDir   string      `yaml:"obsStackDir,omitempty"`   // dir for observability compose stack
+	Metrics      MetricsSpec  `yaml:"metrics"`
+	Logs         LogsSpec     `yaml:"logs"`
+	// StackDir is the directory on-host where the observability docker-compose
+	// stack lives. The agent reconciles this stack (pull + up -d) as part of
+	// the normal reconcile loop. No Ansible needed.
+	StackDir     string       `yaml:"stackDir"`     // default: /opt/eth-observability
+	// EnvFile is the path to the .env file for the observability stack.
+	EnvFile      string       `yaml:"envFile"`      // default: /opt/eth-observability/.env
 }
 
 type MetricsSpec struct {
-	Enabled       bool            `yaml:"enabled"`
-	Exporters     []ExporterSpec  `yaml:"exporters"`
+	Enabled        bool           `yaml:"enabled"`
+	Exporters      []ExporterSpec `yaml:"exporters"`
 	ScrapeInterval string         `yaml:"scrapeInterval"`
-	RemoteWrite   []RemoteWrite   `yaml:"remoteWrite"`
+	RemoteWrite    []RemoteWrite  `yaml:"remoteWrite"`
 }
 
 type ExporterSpec struct {
-	Name  string `yaml:"name"`
-	Port  int    `yaml:"port"`
-	Path  string `yaml:"path"`
-	Image string `yaml:"image,omitempty"`
+	Name        string `yaml:"name"`
+	Port        int    `yaml:"port"`
+	Path        string `yaml:"path"`
+	Image       string `yaml:"image,omitempty"`
+	Description string `yaml:"description,omitempty"`
 }
 
 type RemoteWrite struct {
@@ -143,8 +161,8 @@ type RemoteWrite struct {
 }
 
 type LogsSpec struct {
-	Provider     string            `yaml:"provider"`
-	Destinations []LogDestination  `yaml:"destinations"`
+	Provider     string           `yaml:"provider"`
+	Destinations []LogDestination `yaml:"destinations"`
 }
 
 type LogDestination struct {
@@ -165,7 +183,7 @@ type MaintenanceWindow struct {
 }
 
 type UpgradeStrategy struct {
-	Order          []string `yaml:"order"` // [cl, mev, el]
+	Order           []string `yaml:"order"`           // [cl, mev, el]
 	PreflightChecks []string `yaml:"preflightChecks"`
 }
 
@@ -178,16 +196,17 @@ type AutoUpgradeSpec struct {
 
 // NodeStatus is the actual observed state of a node.
 type NodeStatus struct {
-	Name       string        `json:"name"`
-	Host       string        `json:"host"`
-	Phase      Phase         `json:"phase"`
-	EL         ClientStatus  `json:"el"`
-	CL         ClientStatus  `json:"cl"`
-	MEV        ClientStatus  `json:"mev"`
-	System     SystemStatus  `json:"system"`
-	Cordoned   bool          `json:"cordoned"`
-	ReportedAt time.Time     `json:"reportedAt"`
-	Conditions []Condition   `json:"conditions"`
+	Name       string       `json:"name"`
+	Host       string       `json:"host"`
+	Phase      Phase        `json:"phase"`
+	EL         ClientStatus `json:"el"`
+	CL         ClientStatus `json:"cl"`
+	MEV        ClientStatus `json:"mev"`
+	System     SystemStatus `json:"system"`
+	Disk       DiskStatus   `json:"disk"`
+	Cordoned   bool         `json:"cordoned"`
+	ReportedAt time.Time    `json:"reportedAt"`
+	Conditions []Condition  `json:"conditions"`
 }
 
 type Phase string
@@ -222,6 +241,19 @@ type SystemStatus struct {
 	KernelVer   string  `json:"kernelVersion"`
 }
 
+// DiskStatus reports the current state of data disks.
+type DiskStatus struct {
+	MountPath   string   `json:"mountPath"`
+	Mounted     bool     `json:"mounted"`
+	FsType      string   `json:"fsType"`
+	TotalGB     float64  `json:"totalGB"`
+	UsedGB      float64  `json:"usedGB"`
+	FreeGB      float64  `json:"freeGB"`
+	Devices     []string `json:"devices"`
+	RaidLevel   int      `json:"raidLevel"`
+	ArrayDevice string   `json:"arrayDevice,omitempty"`
+}
+
 type Condition struct {
 	Type    string `json:"type"`
 	Status  string `json:"status"`
@@ -251,9 +283,9 @@ type DiffResult struct {
 }
 
 type DriftItem struct {
-	Field    string `json:"field"`
-	Desired  string `json:"desired"`
-	Actual   string `json:"actual"`
+	Field   string `json:"field"`
+	Desired string `json:"desired"`
+	Actual  string `json:"actual"`
 }
 
 // UpgradeRequest is issued by the CLI to trigger a rolling upgrade.
@@ -270,4 +302,27 @@ type UpgradeRequest struct {
 type Profile struct {
 	Name string   `yaml:"name"`
 	Spec NodeSpec `yaml:"spec"`
+}
+
+// Cluster is the top-level inventory unit.
+// One cluster file describes all nodes that share a set of profiles.
+// This scales to hundreds of nodes — each node entry is minimal.
+type Cluster struct {
+	Name        string        `yaml:"name"`
+	Description string        `yaml:"description,omitempty"`
+	Profiles    []string      `yaml:"profiles"`           // applied to all nodes
+	DefaultPort int           `yaml:"defaultPort"`        // default agent port
+	Nodes       []ClusterNode `yaml:"nodes"`
+}
+
+// ClusterNode is a minimal per-node entry inside a Cluster.
+// Only host-specific fields live here; everything else comes from profiles.
+type ClusterNode struct {
+	Name     string            `yaml:"name"`
+	Host     string            `yaml:"host"`
+	Port     int               `yaml:"port,omitempty"`  // overrides cluster defaultPort
+	Labels   map[string]string `yaml:"labels,omitempty"`
+	Profiles []string          `yaml:"profiles,omitempty"` // additional profiles (additive)
+	Spec     NodeSpec          `yaml:"spec,omitempty"`     // node-level overrides
+	Disabled bool              `yaml:"disabled,omitempty"` // skip this node
 }

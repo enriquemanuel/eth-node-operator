@@ -1,0 +1,70 @@
+name: geth-lighthouse
+# Geth (EL) + Lighthouse (CL)
+# Most battle-tested mainnet pair. Geth has the largest installed base;
+# Lighthouse has the best validator performance metrics.
+spec:
+  execution:
+    client: geth
+    image: ethereum/client-go:v1.14.8
+    dataDir: /data/execution
+    flags:
+      syncmode: snap
+      cache: "4096"
+      maxpeers: "100"
+      http: "true"
+      http.addr: "127.0.0.1"
+      http.port: "8545"
+      http.api: "eth,net,web3,engine,admin"
+      ws: "true"
+      ws.addr: "127.0.0.1"
+      ws.port: "8546"
+      authrpc.addr: "127.0.0.1"
+      authrpc.port: "8551"
+      authrpc.jwtsecret: /data/jwtsecret
+      metrics: "true"
+      metrics.addr: "127.0.0.1"
+      metrics.port: "6060"
+      pprof: "true"
+      pprof.addr: "127.0.0.1"
+    ports:
+      http: 8545
+      p2p: 30303
+      metrics: 6060
+
+  consensus:
+    client: lighthouse
+    image: sigp/lighthouse:v5.3.0
+    dataDir: /data/consensus
+    flags:
+      network: mainnet
+      execution-endpoint: http://127.0.0.1:8551
+      execution-jwt: /data/jwtsecret
+      checkpoint-sync-url: https://mainnet.checkpoint.sigp.io
+      http: "true"
+      http-address: "127.0.0.1"
+      http-port: "5052"
+      metrics: "true"
+      metrics-address: "127.0.0.1"
+      metrics-port: "5054"
+      port: "9000"
+      target-peers: "100"
+    ports:
+      http: 5052
+      p2p: 9000
+      metrics: 5054
+
+  network:
+    firewall:
+      rules:
+        - description: "Geth metrics (localhost only)"
+          port: 6060
+          proto: tcp
+          direction: inbound
+          source: "127.0.0.1"
+          action: allow
+        - description: "Lighthouse metrics (localhost only)"
+          port: 5054
+          proto: tcp
+          direction: inbound
+          source: "127.0.0.1"
+          action: allow

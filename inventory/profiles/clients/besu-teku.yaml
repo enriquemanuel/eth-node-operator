@@ -1,0 +1,55 @@
+name: besu-teku
+# Besu (EL) + Teku (CL) — the full ConsenSys/Hyperledger stack.
+# Both clients from the same organization; best-tested integration.
+# Strong choice for enterprise environments with compliance requirements.
+spec:
+  execution:
+    client: besu
+    image: hyperledger/besu:24.10.0
+    dataDir: /data/execution
+    flags:
+      network: mainnet
+      data-path: /data/execution
+      rpc-http-enabled: "true"
+      rpc-http-host: "127.0.0.1"
+      rpc-http-port: "8545"
+      rpc-http-api: "ETH,NET,WEB3,ENGINE,ADMIN"
+      engine-rpc-enabled: "true"
+      engine-host-allowlist: "127.0.0.1"
+      engine-rpc-port: "8551"
+      engine-jwt-secret: /data/jwtsecret
+      data-storage-format: BONSAI
+      bonsai-limit-trie-logs-enabled: "true"
+      sync-mode: SNAP
+      max-peers: "100"
+      metrics-enabled: "true"
+      metrics-host: "127.0.0.1"
+      metrics-port: "6060"
+      nat-method: DOCKER
+    ports:
+      http: 8545
+      p2p: 30303
+      metrics: 6060
+
+  consensus:
+    client: teku
+    image: consensys/teku:24.10.0
+    dataDir: /data/consensus
+    flags:
+      network: mainnet
+      ee-endpoint: http://127.0.0.1:8551
+      ee-jwt-secret-file: /data/jwtsecret
+      initial-state: https://beaconstate.ethstaker.cc
+      rest-api-enabled: "true"
+      rest-api-interface: "127.0.0.1"
+      rest-api-port: "5052"
+      metrics-enabled: "true"
+      metrics-interface: "127.0.0.1"
+      metrics-port: "8008"
+      p2p-port: "9000"
+      p2p-peer-upper-bound: "100"
+      log-destination: CONSOLE
+    ports:
+      http: 5052
+      p2p: 9000
+      metrics: 8008

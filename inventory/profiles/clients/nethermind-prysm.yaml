@@ -1,0 +1,46 @@
+name: nethermind-prysm
+# Nethermind (EL) + Prysm (CL)
+spec:
+  execution:
+    client: nethermind
+    image: nethermind/nethermind:v1.26.0
+    dataDir: /data/execution
+    flags:
+      config: mainnet
+      datadir: /data/execution
+      JsonRpc.Enabled: "true"
+      JsonRpc.Host: "127.0.0.1"
+      JsonRpc.Port: "8545"
+      JsonRpc.EngineHost: "127.0.0.1"
+      JsonRpc.EnginePort: "8551"
+      JsonRpc.JwtSecretFile: /data/jwtsecret
+      Sync.SnapSync: "true"
+      Network.MaxActivePeers: "100"
+      Metrics.Enabled: "true"
+      Metrics.ExposePort: "6060"
+    ports:
+      http: 8545
+      p2p: 30303
+      metrics: 6060
+
+  consensus:
+    client: prysm
+    image: gcr.io/prysmaticlabs/prysm/beacon-chain:v5.1.0
+    dataDir: /data/consensus
+    flags:
+      mainnet: "true"
+      execution-endpoint: http://127.0.0.1:8551
+      jwt-secret: /data/jwtsecret
+      checkpoint-sync-url: https://beaconstate.info
+      genesis-beacon-api-url: https://beaconstate.info
+      rpc-host: "127.0.0.1"
+      grpc-gateway-host: "127.0.0.1"
+      grpc-gateway-port: "3500"
+      monitoring-host: "127.0.0.1"
+      monitoring-port: "8080"
+      p2p-tcp-port: "9000"
+      accept-terms-of-use: "true"
+    ports:
+      http: 3500
+      p2p: 9000
+      metrics: 8080

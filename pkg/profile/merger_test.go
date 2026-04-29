@@ -287,3 +287,161 @@ func TestLoader_IgnoresNonYAMLFiles(t *testing.T) {
 		t.Errorf("expected 1 profile, got %d", len(profiles))
 	}
 }
+
+func TestLoader_LoadsFromSubdirectories(t *testing.T) {
+	dir := t.TempDir()
+	clientsDir := filepath.Join(dir, "clients")
+	os.MkdirAll(clientsDir, 0755)
+
+	// Top-level profile
+	writeProfile(t, dir, "mainnet-base", `name: mainnet-base`)
+
+	// Subdirectory profile
+	os.WriteFile(filepath.Join(clientsDir, "geth-lighthouse.yaml"), []byte(`
+name: geth-lighthouse
+spec:
+  execution:
+    client: geth
+    image: ethereum/client-go:v1.14.8
+  consensus:
+    client: lighthouse
+    image: sigp/lighthouse:v5.3.0
+`), 0644)
+
+	loader := profile.NewLoader(dir)
+	profiles, err := loader.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(profiles) != 2 {
+		t.Errorf("expected 2 profiles (top-level + subdir), got %d", len(profiles))
+	}
+	if _, ok := profiles["geth-lighthouse"]; !ok {
+		t.Error("expected geth-lighthouse profile from clients/ subdir")
+	}
+}
+
+func TestLoader_DuplicateProfileNameErrors(t *testing.T) {
+	dir := t.TempDir()
+	clientsDir := filepath.Join(dir, "clients")
+	os.MkdirAll(clientsDir, 0755)
+
+	writeProfile(t, dir, "myprofile", `name: myprofile`)
+	os.WriteFile(filepath.Join(clientsDir, "myprofile.yaml"), []byte(`name: myprofile`), 0644)
+
+	loader := profile.NewLoader(dir)
+	_, err := loader.Load()
+	if err == nil {
+		t.Error("expected error for duplicate profile name across dirs")
+	}
+}
+
+func TestLoader_EmptyNameErrors(t *testing.T) {
+	dir := t.TempDir()
+	writeProfile(t, dir, "no-name", `spec:
+  execution:
+    client: geth`)
+
+	loader := profile.NewLoader(dir)
+	_, err := loader.Load()
+	if err == nil {
+		t.Error("expected error for profile with no name field")
+	}
+}
+
+func TestMerge_InfraProfilePlusClientPair(t *testing.T) {
+	dir := t.TempDir()
+	clientsDir := filepath.Join(dir, "clients")
+	os.MkdirAll(clientsDir, 0755)
+
+	writeProfile(t, dir, "mainnet-base", `
+name: mainnet-base
+spec:
+  system:
+    kernel:
+      parameters:
+        vm.swappiness: "1"
+  maintenance:
+    window:
+      schedule: "0 2 * * 0"
+`)
+
+	os.WriteFile(filepath.Join(clientsDir, "reth-lighthouse.yaml"), []byte(`
+name: reth-lighthouse
+spec:
+  execution:
+    client: reth
+    image: ghcr.io/paradigmxyz/reth:v1.1.0
+  consensus:
+    client: lighthouse
+    image: sigp/lighthouse:v5.3.0
+`), 0644)
+
+	loader := profile.NewLoader(dir)
+	profiles, err := loader.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	// Merge: infra profile + client pair + empty node spec
+	resolved, err := profile.Merge(profiles, []string{"mainnet-base", "reth-lighthouse"}, types.NodeSpec{})
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	// Infra fields come from mainnet-base
+	if resolved.Maintenance.Window.Schedule != "0 2 * * 0" {
+		t.Errorf("expected maintenance window from infra profile, got %q", resolved.Maintenance.Window.Schedule)
+	}
+	if resolved.System.Kernel.Parameters["vm.swappiness"] != "1" {
+		t.Error("expected kernel param from infra profile")
+	}
+
+	// Client fields come from reth-lighthouse
+	if resolved.Execution.Client != "reth" {
+		t.Errorf("expected reth from client pair, got %s", resolved.Execution.Client)
+	}
+	if resolved.Consensus.Client != "lighthouse" {
+		t.Errorf("expected lighthouse from client pair, got %s", resolved.Consensus.Client)
+	}
+}
+
+func TestMerge_NodeCanOverrideClientImage(t *testing.T) {
+	dir := t.TempDir()
+	clientsDir := filepath.Join(dir, "clients")
+	os.MkdirAll(clientsDir, 0755)
+
+	os.WriteFile(filepath.Join(clientsDir, "geth-lighthouse.yaml"), []byte(`
+name: geth-lighthouse
+spec:
+  execution:
+    client: geth
+    image: ethereum/client-go:v1.14.8
+  consensus:
+    client: lighthouse
+    image: sigp/lighthouse:v5.3.0
+`), 0644)
+
+	loader := profile.NewLoader(dir)
+	profiles, _ := loader.Load()
+
+	// Node pins a specific newer EL image
+	nodeSpec := types.NodeSpec{
+		Execution: types.ClientSpec{Image: "ethereum/client-go:v1.14.9"},
+	}
+
+	resolved, err := profile.Merge(profiles, []string{"geth-lighthouse"}, nodeSpec)
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	if resolved.Execution.Image != "ethereum/client-go:v1.14.9" {
+		t.Errorf("node should override EL image, got %s", resolved.Execution.Image)
+	}
+	if resolved.Execution.Client != "geth" {
+		t.Error("client name should still come from profile")
+	}
+	if resolved.Consensus.Client != "lighthouse" {
+		t.Error("CL client should still come from profile")
+	}
+}
