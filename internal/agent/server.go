@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/enriquemanuel/eth-node-operator/internal/collector"
+	"github.com/enriquemanuel/eth-node-operator/internal/discover"
 	"github.com/enriquemanuel/eth-node-operator/internal/maintenance"
 	"github.com/enriquemanuel/eth-node-operator/internal/reconciler"
 	"github.com/enriquemanuel/eth-node-operator/internal/ufw"
@@ -83,6 +84,7 @@ func (a *Agent) Start(ctx context.Context) error {
 	mux.HandleFunc("/logs", a.handleLogs)
 	mux.HandleFunc("/restart", requireAPIKey(a.apiKey, a.handleRestart))
 	mux.HandleFunc("/healthz", a.handleHealthz)
+	mux.HandleFunc("/discover", a.handleDiscover)
 
 	srv := &http.Server{
 		Addr:           a.listenAddr,
@@ -392,6 +394,19 @@ func (a *Agent) handleRestart(w http.ResponseWriter, r *http.Request) {
 	a.log.Info("container restarted via API", "container", containerName)
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, `{"restarted":"%s"}`, containerName)
+}
+
+// handleDiscover runs node auto-discovery probes and returns the results.
+// Used by ethctl discover to generate cluster file YAML snippets.
+// GET-only, no auth required — read-only probe with no side effects.
+func (a *Agent) handleDiscover(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	report := discover.Run(r.Context())
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(report)
 }
 
 // handleHealthz is a simple liveness check.

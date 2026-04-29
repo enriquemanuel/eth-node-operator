@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"os"
 	"io"
 	"net/http"
@@ -146,6 +147,20 @@ func (c *Client) Healthz(ctx context.Context) error {
 		return fmt.Errorf("agent %s unhealthy: status %d", c.node, resp.StatusCode)
 	}
 	return nil
+}
+
+// Discover fetches node auto-discovery results from the agent.
+func (c *Client) Discover(ctx context.Context) (map[string]interface{}, error) {
+	resp, err := c.get(ctx, "/discover")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode discover response: %w", err)
+	}
+	return result, nil
 }
 
 func (c *Client) get(ctx context.Context, path string) (*http.Response, error) {

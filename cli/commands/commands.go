@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/enriquemanuel/eth-node-operator/cli/agentclient"
+	"github.com/enriquemanuel/eth-node-operator/internal/discover"
 	"github.com/enriquemanuel/eth-node-operator/internal/dns"
 	"github.com/enriquemanuel/eth-node-operator/pkg/inventory"
 	"github.com/enriquemanuel/eth-node-operator/pkg/types"
@@ -34,6 +35,7 @@ func Root() *cobra.Command {
 
 	root.AddCommand(
 		nodesCmd(),
+		discoverCmd(),
 		dnsCmd(),
 		cordonCmd(),
 		uncordonCmd(),
@@ -717,4 +719,91 @@ func expectedHostnames(zone string) (map[string]bool, error) {
 		}
 	}
 	return expected, nil
+}
+
+// discoverCmd probes a node and outputs a YAML snippet for the cluster file.
+func discoverCmd() *cobra.Command {
+	var zone, zoneID string
+	cmd := &cobra.Command{
+		Use:   "discover <node>",
+		Short: "Auto-detect node configuration and output a cluster file snippet",
+		Long: `Connects to the ethagent on a node and runs discovery probes:
+
+  Public IP       — what Route 53 A record should point to
+  cgroup version  — whether cAdvisor needs privileged: true
+  Running clients — EL/CL client names from running Docker containers
+  VC gateways     — source IPs of active :5052 connections (EKS NAT IPs)
+  Management IPs  — source IPs of active SSH sessions (bastion host)
+
+Outputs a YAML snippet ready to paste into your cluster file.
+
+Note: VC gateway detection only works if the Lighthouse VC is currently
+connected. Run this after the VC has been pointed at this node.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			nodeName := args[0]
+
+			node, err := findNode(nodeName)
+			if err != nil {
+				return err
+			}
+
+			client := agentclient.New(nodeName, node.Host, agentPort)
+
+			raw, err := client.Discover(context.Background())
+			if err != nil {
+				return fmt.Errorf("discover %s: %w", nodeName, err)
+			}
+
+			// If zone/zoneID not given, try to read from node spec
+			if zone == "" {
+				zone = node.Spec.Network.Route53.Zone
+			}
+			if zoneID == "" {
+				zoneID = node.Spec.Network.Route53.ZoneID
+			}
+
+			// Build a Report from the raw map for YAML snippet generation
+			report := &discover.Report{}
+			if v, ok := raw["publicIP"].(string); ok {
+				report.PublicIP = v
+			}
+			if v, ok := raw["cgroupVersion"].(float64); ok {
+				report.CgroupVersion = int(v)
+			}
+			if v, ok := raw["elClient"].(string); ok {
+				report.ELClient = v
+			}
+			if v, ok := raw["clClient"].(string); ok {
+				report.CLClient = v
+			}
+			if arr, ok := raw["vcGatewayIPs"].([]interface{}); ok {
+				for _, ip := range arr {
+					if s, ok := ip.(string); ok {
+						report.VCGatewayIPs = append(report.VCGatewayIPs, s)
+					}
+				}
+			}
+			if arr, ok := raw["managementIPs"].([]interface{}); ok {
+				for _, ip := range arr {
+					if s, ok := ip.(string); ok {
+						report.ManagementIPs = append(report.ManagementIPs, s)
+					}
+				}
+			}
+			if arr, ok := raw["warnings"].([]interface{}); ok {
+				for _, w := range arr {
+					if s, ok := w.(string); ok {
+						report.Warnings = append(report.Warnings, s)
+					}
+				}
+			}
+
+			fmt.Println(report.YAMLSnippet(nodeName, zone, zoneID))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&zone, "zone", "", "base domain for Route 53 (e.g. validators.example.com)")
+	cmd.Flags().StringVar(&zoneID, "zone-id", "", "Route 53 hosted zone ID")
+	return cmd
 }
