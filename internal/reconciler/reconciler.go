@@ -3,13 +3,12 @@ package reconciler
 import (
 	"context"
 	"fmt"
-	"os"
 	"log/slog"
 	"strings"
 	"time"
 
-	"github.com/enriquemanuel/eth-node-operator/internal/cloudflare"
 	"github.com/enriquemanuel/eth-node-operator/internal/disk"
+	"github.com/enriquemanuel/eth-node-operator/internal/dns"
 	"github.com/enriquemanuel/eth-node-operator/internal/snapshot"
 	"github.com/enriquemanuel/eth-node-operator/internal/obs"
 	"github.com/enriquemanuel/eth-node-operator/internal/ufw"
@@ -83,25 +82,30 @@ func (r *Reconciler) Reconcile(ctx context.Context, desired types.NodeSpec) (*ty
 	}
 
 
-	// 4. Cloudflare DNS + Tunnel (if configured)
-	if desired.Network.Cloudflare.TunnelName != "" {
-		cfToken := os.Getenv("CF_DNS_API_TOKEN")
-		if cfToken != "" {
-			cfMgr := cloudflare.New(cfToken)
-			cfCfg := cloudflare.NodeConfig{
-				AccountID:     desired.Network.Cloudflare.AccountID,
-				ZoneID:        desired.Network.Cloudflare.ZoneID,
-				Domain:        desired.Network.Cloudflare.Domain,
-				NodeSubdomain: desired.Network.Cloudflare.NodeSubdomain,
-				CLSubdomain:   desired.Network.Cloudflare.CLSubdomain,
-				TunnelName:    desired.Network.Cloudflare.TunnelName,
+	// 4. Route 53 DNS registration (derives hostname from node name + EL client)
+	if desired.Network.Route53.ZoneID != "" && dns.IsConfigured() {
+		hostname := dns.Hostname(result.NodeName, desired.Execution.Client, desired.Network.Route53.Zone)
+		dnsMgr := dns.New()
+		dnsResult, err := dnsMgr.Register(ctx, hostname, desired.Network.Route53.ZoneID, desired.Network.Route53.TTL)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("dns: %v", err))
+		} else if dnsResult.Action == "UPSERT" {
+			result.Actions = append(result.Actions, fmt.Sprintf("dns: %s → %s", dnsResult.Hostname, dnsResult.IP))
+		}
+	}
+
+	// 4b. VC gateway :5052 firewall rules (EKS NAT IPs → beacon API)
+	if len(desired.Network.VCGateways) > 0 {
+		for _, cidr := range desired.Network.VCGateways {
+			rule := types.FirewallRule{
+				Description: "VC beacon API",
+				Port:        5052,
+				Proto:       "tcp",
+				Direction:   "inbound",
+				Source:      cidr,
+				Action:      "allow",
 			}
-			cfResult, err := cfMgr.Reconcile(ctx, cfCfg)
-			if err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("cloudflare: %v", err))
-			} else {
-				result.Actions = append(result.Actions, cfResult.Actions...)
-			}
+			desired.Network.Firewall.Rules = append(desired.Network.Firewall.Rules, rule)
 		}
 	}
 

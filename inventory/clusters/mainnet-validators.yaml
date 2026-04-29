@@ -1,17 +1,26 @@
 name: mainnet-validators
 description: >
   Production Ethereum validator infrastructure.
-  Bare metal nodes run: EL + CL beacon node + MEV-Boost.
-  Lighthouse VC connects via Cloudflare Tunnel (outbound-only, no inbound ports).
-  DNS is managed automatically by the ethagent on each node.
+  Bare metal nodes (OVH) run: EL + CL beacon node + MEV-Boost.
+  Lighthouse VC (EKS) connects via plain HTTP to :5052 on each node.
+  UFW restricts :5052 to EKS NAT gateway IPs only.
+  Route 53 provides human-readable hostnames — no IP memorisation.
 
 profiles:
   - mainnet-base
   - observability-full
   - mev-standard
-  - cloudflare-tunnel
 
 defaultPort: 19000
+
+# Route 53 public hosted zone — same for all nodes.
+# The agent auto-derives hostnames: {nodeName}-{elClient}.{zone}
+# Example: bare-metal-01-geth.validators.example.com → OVH public IP
+#          bare-metal-02-nethermind.validators.example.com → OVH public IP
+#
+# Lighthouse VC config:
+#   --beacon-nodes=http://bare-metal-01-geth.validators.example.com:5052,
+#                  http://bare-metal-02-nethermind.validators.example.com:5052
 
 nodes:
   # ── Snapshot server ─────────────────────────────────────────────────
@@ -25,20 +34,18 @@ nodes:
       snapshot:
         enabled: false
       network:
-        cloudflare:
-          domain: validators.example.com
-          accountId: "${CF_ACCOUNT_ID}"
-          zoneId: "${CF_ZONE_ID}"
-          nodeSubdomain: snapshot-server-01
-          clSubdomain: snapshot-server-01-cl
-          tunnelName: eth-snapshot-server-01
-          accessPolicy: service-token
+        route53:
+          zoneId: Z1234567890ABC
+          zone: validators.example.com
+        # No vcGateways — snapshot server doesn't expose :5052 to EKS
 
   # ── Validator beacon nodes ───────────────────────────────────────────
-  # Lighthouse VC connects to:
-  #   https://bare-metal-01-cl.validators.example.com
-  #   https://bare-metal-02-cl.validators.example.com
-  # These are Cloudflare Tunnel endpoints — no :443 inbound port needed.
+  # vcGateways → UFW: allow :5052 from each EKS NAT gateway IP.
+  # The VC connects to the derived hostname over plain HTTP.
+  #
+  # How to find your EKS NAT gateway IPs:
+  #   aws ec2 describe-nat-gateways --filter Name=state,Values=available \
+  #     --query 'NatGateways[].NatGatewayAddresses[].PublicIp'
 
   - name: bare-metal-01
     host: 10.1.1.1
@@ -46,14 +53,12 @@ nodes:
     profiles: [geth-lighthouse]
     spec:
       network:
-        cloudflare:
-          domain: validators.example.com
-          accountId: "${CF_ACCOUNT_ID}"
-          zoneId: "${CF_ZONE_ID}"
-          nodeSubdomain: bare-metal-01       # A: bare-metal-01.validators.example.com → IP
-          clSubdomain: bare-metal-01-cl      # CNAME: bare-metal-01-cl.validators.example.com → tunnel
-          tunnelName: eth-bare-metal-01
-          accessPolicy: service-token        # Cloudflare Access: only VC service token
+        route53:
+          zoneId: Z1234567890ABC
+          zone: validators.example.com
+        vcGateways:
+          - "18.x.x.x/32"   # EKS us-east-1a NAT gateway EIP
+          - "52.x.x.x/32"   # EKS us-east-1b NAT gateway EIP
       snapshot:
         provider: self-hosted
         url: http://10.1.1.10:8888
@@ -67,14 +72,12 @@ nodes:
     profiles: [nethermind-teku]
     spec:
       network:
-        cloudflare:
-          domain: validators.example.com
-          accountId: "${CF_ACCOUNT_ID}"
-          zoneId: "${CF_ZONE_ID}"
-          nodeSubdomain: bare-metal-02
-          clSubdomain: bare-metal-02-cl
-          tunnelName: eth-bare-metal-02
-          accessPolicy: service-token
+        route53:
+          zoneId: Z1234567890ABC
+          zone: validators.example.com
+        vcGateways:
+          - "18.x.x.x/32"
+          - "52.x.x.x/32"
       snapshot:
         provider: self-hosted
         url: http://10.1.1.10:8888
@@ -85,20 +88,21 @@ nodes:
         window:
           schedule: "0 3 * * 0"
 
-  # ── Template ─────────────────────────────────────────────────────────
+  # ── Template: new node ───────────────────────────────────────────────
+  # Copy, fill name/host/profiles, done.
+  # Hostname is auto-derived: bare-metal-03-reth.validators.example.com
+  #
   # - name: bare-metal-03
   #   host: 10.1.1.3
   #   profiles: [reth-lighthouse]
   #   spec:
   #     network:
-  #       cloudflare:
-  #         domain: validators.example.com
-  #         accountId: "${CF_ACCOUNT_ID}"
-  #         zoneId: "${CF_ZONE_ID}"
-  #         nodeSubdomain: bare-metal-03
-  #         clSubdomain: bare-metal-03-cl
-  #         tunnelName: eth-bare-metal-03
-  #         accessPolicy: service-token
+  #       route53:
+  #         zoneId: Z1234567890ABC
+  #         zone: validators.example.com
+  #       vcGateways:
+  #         - "18.x.x.x/32"
+  #         - "52.x.x.x/32"
   #     snapshot:
   #       provider: self-hosted
   #       url: http://10.1.1.10:8888

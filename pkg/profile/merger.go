@@ -184,27 +184,20 @@ func mergeSpecs(dst, src types.NodeSpec) types.NodeSpec {
 		dst.Observability.StackDir = src.Observability.StackDir
 	}
 
-	// Cloudflare
-	if src.Network.Cloudflare.Domain != "" {
-		dst.Network.Cloudflare.Domain = src.Network.Cloudflare.Domain
+	// Route 53 DNS
+	if src.Network.Route53.ZoneID != "" {
+		dst.Network.Route53.ZoneID = src.Network.Route53.ZoneID
 	}
-	if src.Network.Cloudflare.AccountID != "" {
-		dst.Network.Cloudflare.AccountID = src.Network.Cloudflare.AccountID
+	if src.Network.Route53.Zone != "" {
+		dst.Network.Route53.Zone = src.Network.Route53.Zone
 	}
-	if src.Network.Cloudflare.ZoneID != "" {
-		dst.Network.Cloudflare.ZoneID = src.Network.Cloudflare.ZoneID
+	if src.Network.Route53.TTL != 0 {
+		dst.Network.Route53.TTL = src.Network.Route53.TTL
 	}
-	if src.Network.Cloudflare.NodeSubdomain != "" {
-		dst.Network.Cloudflare.NodeSubdomain = src.Network.Cloudflare.NodeSubdomain
-	}
-	if src.Network.Cloudflare.CLSubdomain != "" {
-		dst.Network.Cloudflare.CLSubdomain = src.Network.Cloudflare.CLSubdomain
-	}
-	if src.Network.Cloudflare.TunnelName != "" {
-		dst.Network.Cloudflare.TunnelName = src.Network.Cloudflare.TunnelName
-	}
-	if src.Network.Cloudflare.AccessPolicy != "" {
-		dst.Network.Cloudflare.AccessPolicy = src.Network.Cloudflare.AccessPolicy
+
+	// VCGateways (additive — collect from all profiles + node)
+	if len(src.Network.VCGateways) > 0 {
+		dst.Network.VCGateways = append(dst.Network.VCGateways, src.Network.VCGateways...)
 	}
 
 	// Snapshot

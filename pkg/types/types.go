@@ -84,34 +84,31 @@ type DiskSpec struct {
 
 // NetworkSpec describes firewall and DNS configuration.
 type NetworkSpec struct {
-	DNS        DNSSpec        `yaml:"dns"`
-	Firewall   FirewallSpec   `yaml:"firewall"`
-	Cloudflare CloudflareSpec `yaml:"cloudflare"`
+	DNS        DNSSpec      `yaml:"dns"`
+	Firewall   FirewallSpec `yaml:"firewall"`
+	Route53    Route53Spec  `yaml:"route53"`
+	// VCGateways is the list of EKS NAT gateway IPs or CIDRs allowed to
+	// reach :5052 (beacon node HTTP API) directly over the public internet.
+	// The agent generates one UFW rule per entry.
+	// Example: ["18.x.x.x/32", "52.x.x.x/32"]
+	VCGateways []string `yaml:"vcGateways"`
 }
 
-// CloudflareSpec configures the Cloudflare Tunnel and DNS for this node.
-// cloudflared creates an outbound-only tunnel — no inbound ports needed.
-// DNS records are provisioned automatically via the Cloudflare API.
-type CloudflareSpec struct {
-	// AccountID is the Cloudflare account ID.
-	AccountID string `yaml:"accountId"`
-	// ZoneID is the Cloudflare DNS zone ID.
+// Route53Spec configures public DNS A-record registration for this node.
+// The agent uses the aws CLI to upsert one A record on startup.
+//
+// Hostname is auto-derived: {nodeName}-{elClient}.{zone}
+// Example: bare-metal-01-geth.validators.example.com → 203.0.113.1
+//
+// This makes it trivial to know what is running where without looking
+// anything up. The VC config uses these names instead of raw IPs.
+type Route53Spec struct {
+	// ZoneID is the Route 53 hosted zone ID (e.g. Z1234567890ABC)
 	ZoneID string `yaml:"zoneId"`
-	// Domain is the base domain, e.g. "validators.example.com".
-	Domain string `yaml:"domain"`
-	// NodeSubdomain is the A-record subdomain for this node.
-	// Result: {NodeSubdomain}.{Domain} → node IP
-	// Example: "bare-metal-01" → "bare-metal-01.validators.example.com"
-	NodeSubdomain string `yaml:"nodeSubdomain"`
-	// CLSubdomain is the CNAME for the beacon node tunnel endpoint.
-	// Result: {CLSubdomain}.{Domain} → cloudflare tunnel
-	// Example: "bare-metal-01-cl" → "bare-metal-01-cl.validators.example.com"
-	CLSubdomain string `yaml:"clSubdomain"`
-	// TunnelName is the Cloudflare Tunnel name (created if not exists).
-	TunnelName string `yaml:"tunnelName"`
-	// AccessPolicy restricts who can reach the CL endpoint via Cloudflare Access.
-	// "service-token" (recommended) or "ip-policy"
-	AccessPolicy string `yaml:"accessPolicy"`
+	// Zone is the base domain (e.g. "validators.example.com")
+	Zone string `yaml:"zone"`
+	// TTL is the record TTL in seconds. Default: 300.
+	TTL int `yaml:"ttl,omitempty"`
 }
 
 type DNSSpec struct {
