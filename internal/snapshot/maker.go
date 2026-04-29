@@ -90,15 +90,19 @@ func (m *Maker) CreateSnapshot(ctx context.Context) (*SnapshotResult, error) {
 	// --use-compress-program=zstd for streaming compression
 	// -c: create, --use-compress-program: pipe through zstd
 	// Uses zstd level 3 (good balance of speed vs size for large datadirs)
-	cmd := exec.CommandContext(ctx, "bash", "-c", fmt.Sprintf(
-		`tar --use-compress-program="zstd -T0 -3" -cf "%s" -C "%s" .`,
-		outPath, m.cfg.DataDir,
-	))
+	// No bash -c: args are passed directly, no shell injection possible.
+	cmd := exec.CommandContext(ctx,
+		"tar",
+		"--use-compress-program=zstd -T0 -3",
+		"-cf", outPath,
+		"-C", m.cfg.DataDir,
+		".",
+	)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		os.Remove(outPath)
+		os.Remove(outPath) //nolint:errcheck
 		return nil, fmt.Errorf("create snapshot archive: %w", err)
 	}
 

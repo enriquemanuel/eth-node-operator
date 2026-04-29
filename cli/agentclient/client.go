@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"io"
 	"net/http"
 	"time"
@@ -17,14 +18,25 @@ type Client struct {
 	baseURL string
 	http    *http.Client
 	node    string
+	apiKey  string
 }
 
 // New returns a Client targeting the given agent URL.
 func New(nodeName, host string, port int) *Client {
+	return NewWithKey(nodeName, host, port, "")
+}
+
+// NewWithKey returns a Client with a Bearer token for authenticated endpoints.
+// The API key is read from ETHAGENT_API_KEY env var if key is empty.
+func NewWithKey(nodeName, host string, port int, key string) *Client {
+	if key == "" {
+		key = os.Getenv("ETHAGENT_API_KEY")
+	}
 	return &Client{
 		node:    nodeName,
 		baseURL: fmt.Sprintf("http://%s:%d", host, port),
 		http:    &http.Client{Timeout: 10 * time.Second},
+		apiKey:  key,
 	}
 }
 
@@ -153,6 +165,9 @@ func (c *Client) post(ctx context.Context, path string, body io.Reader) (*http.R
 	if err != nil {
 		return nil, err
 	}
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", c.node, path, err)
@@ -170,6 +185,9 @@ func (c *Client) postJSON(ctx context.Context, path string, payload interface{})
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", c.node, path, err)

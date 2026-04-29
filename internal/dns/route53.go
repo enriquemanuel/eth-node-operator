@@ -353,5 +353,5 @@ func (m *Manager) saveState(state *DNSState) {
 	data, _ := json.MarshalIndent(state, "", "  ")
 	dir := filepath.Dir(m.stateFile)
 	os.MkdirAll(dir, 0750) //nolint:errcheck
-	os.WriteFile(m.stateFile, data, 0640) //nolint:errcheck
+	os.WriteFile(m.stateFile, data, 0600) //nolint:errcheck
 }

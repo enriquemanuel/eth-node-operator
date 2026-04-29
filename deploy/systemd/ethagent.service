@@ -20,16 +20,26 @@ Restart=on-failure
 RestartSec=10s
 TimeoutStopSec=30s
 
-# Environment overrides (optional — values can also be passed via flags above)
 EnvironmentFile=-/etc/ethagent/env
 
-# Security hardening
-NoNewPrivileges=false
+# ── Hardening ────────────────────────────────────────────────────────
+# ethagent needs root for: docker, ufw, disk mounting, fstab, mdadm.
+# We harden what we can without losing required capabilities.
+
+NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=false
+ProtectProc=invisible          # /proc entries only visible for own processes
+ProcSubset=pid                 # only pid namespace, not all of /proc
+
+# Cannot restrict these because ethagent manages system state:
+# ProtectSystem — needs /etc (fstab, mdadm.conf, ethagent config)
+# ProtectHome   — acceptable
 ProtectHome=read-only
 
-# Logging
+# File descriptor hardening
+LimitNOFILE=65536
+LimitNPROC=512
+
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=ethagent

@@ -30,6 +30,8 @@ type Agent struct {
 	eth         *ethclient.Client
 	log         *slog.Logger
 
+	apiKey   string
+
 	mu       sync.RWMutex
 	cordoned bool
 	reason   string
@@ -53,6 +55,11 @@ func New(cfg Config, log *slog.Logger) *Agent {
 	rec := reconciler.New(docker, eth, ufwMgr, log)
 	sys := collector.NewSystemCollector()
 
+	apiKey, err := loadOrCreateAPIKey()
+	if err != nil {
+		log.Warn("could not load/create API key, write endpoints will be unprotected", "err", err)
+	}
+
 	return &Agent{
 		nodeName:     cfg.NodeName,
 		specPath:     cfg.SpecPath,
@@ -62,6 +69,7 @@ func New(cfg Config, log *slog.Logger) *Agent {
 		docker:       docker,
 		eth:          eth,
 		log:          log,
+		apiKey:       apiKey,
 	}
 }
 
@@ -69,16 +77,20 @@ func New(cfg Config, log *slog.Logger) *Agent {
 func (a *Agent) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/status", a.handleStatus)
-	mux.HandleFunc("/cordon", a.handleCordon)
-	mux.HandleFunc("/reconcile", a.handleReconcile)
+	mux.HandleFunc("/cordon", requireAPIKey(a.apiKey, a.handleCordon))
+	mux.HandleFunc("/reconcile", requireAPIKey(a.apiKey, a.handleReconcile))
 	mux.HandleFunc("/diff", a.handleDiff)
 	mux.HandleFunc("/logs", a.handleLogs)
-	mux.HandleFunc("/restart", a.handleRestart)
+	mux.HandleFunc("/restart", requireAPIKey(a.apiKey, a.handleRestart))
 	mux.HandleFunc("/healthz", a.handleHealthz)
 
 	srv := &http.Server{
-		Addr:    a.listenAddr,
-		Handler: mux,
+		Addr:           a.listenAddr,
+		Handler:        http.MaxBytesHandler(mux, 1<<20), // 1 MB max request body
+		ReadTimeout:    15 * time.Second,
+		WriteTimeout:   60 * time.Second, // longer for log streaming
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 16, // 64 KB
 	}
 
 	go a.reconcileLoop(ctx)

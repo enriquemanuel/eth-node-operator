@@ -125,7 +125,9 @@ services:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
     container_name: cadvisor
     restart: unless-stopped
-    privileged: true
+    privileged: true  # Required for cgroup v1 access on bare metal
+    security_opt:
+      - no-new-privileges:true
     networks:
       - observability
     ports:
@@ -185,7 +187,9 @@ services:
     container_name: process-exporter
     restart: unless-stopped
     network_mode: host
-    privileged: true
+    # No privileged needed — only /proc access required
+    security_opt:
+      - no-new-privileges:true
     command:
       - "--procfs=/host/proc"
       - "--config.path=/etc/process-exporter/config.yml"
@@ -256,7 +260,7 @@ services:
       - "--metrics-port=9191"
     volumes:
       - ./ethereum-metrics-exporter/config.yaml:/etc/ethereum-metrics-exporter/config.yaml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # docker.sock removed — ethereum-metrics-exporter connects via HTTP to EL/CL, not Docker
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9191/metrics"]
       interval: 30s

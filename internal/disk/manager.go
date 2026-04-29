@@ -257,10 +257,13 @@ func (m *Manager) ensureRAID0(ctx context.Context, arrayDevice string, devices [
 	}
 
 	// Save mdadm configuration for array persistence across reboots
-	if _, err := m.runner.Run(ctx, "bash", "-c",
-		fmt.Sprintf("mdadm --detail --scan >> /etc/mdadm/mdadm.conf")); err != nil {
-		// Non-fatal — array works but won't auto-assemble on boot without this
-		_ = err
+	// Append mdadm config safely without shell — no injection possible.
+	if scanOut, scanErr := m.runner.Run(ctx, "mdadm", "--detail", "--scan"); scanErr == nil && scanOut != "" {
+		f, openErr := os.OpenFile("/etc/mdadm/mdadm.conf", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
+		if openErr == nil {
+			f.WriteString(scanOut + "\n") //nolint:errcheck
+			f.Close()
+		}
 	}
 
 	// Update initramfs so the array comes up in early boot
@@ -376,6 +379,12 @@ func (m *Manager) ensureFstab(device, mountPath, fsType string, options []string
 
 	entry := fmt.Sprintf("\n# eth-node-operator managed\nUUID=%s %s %s %s 0 0\n",
 		uuid, mountPath, fsType, opts)
+
+	// Backup fstab before modifying — a corrupt fstab prevents boot
+	backup := fstabPath + ".bak"
+	if backupData, berr := os.ReadFile(fstabPath); berr == nil {
+		os.WriteFile(backup, backupData, 0640) //nolint:errcheck
+	}
 
 	// Append to fstab
 	f, err := os.OpenFile(fstabPath, os.O_APPEND|os.O_WRONLY, 0644)

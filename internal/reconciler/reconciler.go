@@ -95,17 +95,24 @@ func (r *Reconciler) Reconcile(ctx context.Context, desired types.NodeSpec) (*ty
 	}
 
 	// 4b. VC gateway :5052 firewall rules (EKS NAT IPs → beacon API)
+	// Build a separate spec so we don't mutate the passed-in desired (race safety).
 	if len(desired.Network.VCGateways) > 0 {
+		vcRules := make([]types.FirewallRule, len(desired.Network.Firewall.Rules))
+		copy(vcRules, desired.Network.Firewall.Rules)
 		for _, cidr := range desired.Network.VCGateways {
-			rule := types.FirewallRule{
+			vcRules = append(vcRules, types.FirewallRule{
 				Description: "VC beacon API",
-				Port:        5052,
+				Port:        types.CLHTTPPort,
 				Proto:       "tcp",
 				Direction:   "inbound",
 				Source:      cidr,
 				Action:      "allow",
-			}
-			desired.Network.Firewall.Rules = append(desired.Network.Firewall.Rules, rule)
+			})
+		}
+		vcSpec := desired.Network.Firewall
+		vcSpec.Rules = vcRules
+		if err := r.reconcileFirewall(ctx, vcSpec); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("vc-gateway-firewall: %v", err))
 		}
 	}
 

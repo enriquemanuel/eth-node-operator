@@ -119,7 +119,7 @@ func (m *Manager) write(secret string) error {
 
 	// Write atomically: write to temp file, then rename
 	tmp := m.path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(secret+"\n"), 0640); err != nil {
+	if err := os.WriteFile(tmp, []byte(secret+"\n"), 0600); err != nil {
 		return fmt.Errorf("write JWT secret: %w", err)
 	}
 	if err := os.Rename(tmp, m.path); err != nil {
