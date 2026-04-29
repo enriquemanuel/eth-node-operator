@@ -84,14 +84,34 @@ type DiskSpec struct {
 
 // NetworkSpec describes firewall and DNS configuration.
 type NetworkSpec struct {
-	DNS      DNSSpec      `yaml:"dns"`
-	Firewall FirewallSpec `yaml:"firewall"`
-	TLS      TLSSpec      `yaml:"tls"`
-	// VCGateways is the list of IPs or CIDRs allowed to reach :443 (Traefik).
-	// These are the EKS NAT gateway egress IPs where the Lighthouse VC runs.
-	// Drives both the UFW rule and the Traefik IPAllowList middleware.
-	// Example: ["10.0.1.0/24", "52.1.2.3/32"]
-	VCGateways []string `yaml:"vcGateways"`
+	DNS        DNSSpec        `yaml:"dns"`
+	Firewall   FirewallSpec   `yaml:"firewall"`
+	Cloudflare CloudflareSpec `yaml:"cloudflare"`
+}
+
+// CloudflareSpec configures the Cloudflare Tunnel and DNS for this node.
+// cloudflared creates an outbound-only tunnel — no inbound ports needed.
+// DNS records are provisioned automatically via the Cloudflare API.
+type CloudflareSpec struct {
+	// AccountID is the Cloudflare account ID.
+	AccountID string `yaml:"accountId"`
+	// ZoneID is the Cloudflare DNS zone ID.
+	ZoneID string `yaml:"zoneId"`
+	// Domain is the base domain, e.g. "validators.example.com".
+	Domain string `yaml:"domain"`
+	// NodeSubdomain is the A-record subdomain for this node.
+	// Result: {NodeSubdomain}.{Domain} → node IP
+	// Example: "bare-metal-01" → "bare-metal-01.validators.example.com"
+	NodeSubdomain string `yaml:"nodeSubdomain"`
+	// CLSubdomain is the CNAME for the beacon node tunnel endpoint.
+	// Result: {CLSubdomain}.{Domain} → cloudflare tunnel
+	// Example: "bare-metal-01-cl" → "bare-metal-01-cl.validators.example.com"
+	CLSubdomain string `yaml:"clSubdomain"`
+	// TunnelName is the Cloudflare Tunnel name (created if not exists).
+	TunnelName string `yaml:"tunnelName"`
+	// AccessPolicy restricts who can reach the CL endpoint via Cloudflare Access.
+	// "service-token" (recommended) or "ip-policy"
+	AccessPolicy string `yaml:"accessPolicy"`
 }
 
 type DNSSpec struct {
@@ -115,11 +135,6 @@ type FirewallRule struct {
 	Action      string `yaml:"action"` // allow | deny
 }
 
-type TLSSpec struct {
-	Provider string   `yaml:"provider"`
-	Issuer   string   `yaml:"issuer"`
-	Domains  []string `yaml:"domains"`
-}
 
 // ClientSpec describes an EL or CL client container.
 type ClientSpec struct {

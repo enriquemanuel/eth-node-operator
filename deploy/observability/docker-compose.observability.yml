@@ -2,7 +2,7 @@
 # "Host metrics on steroids" edition
 #
 # Components:
-#   traefik                   TLS termination via Cloudflare DNS-01
+#   cloudflared              Outbound tunnel to Cloudflare (systemd, not Docker)
 #   node-exporter             Host OS: ALL collectors (ethtool, hwmon, systemd, etc.)
 #   cadvisor                  Per-container CPU/mem/net/disk I/O
 #   ethereum-metrics-exporter EL+CL protocol: sync, finality, peers, txpool, blobs
@@ -21,7 +21,6 @@ networks:
     driver: bridge
 
 volumes:
-  traefik-acme:
   alloy-data:
 
 services:

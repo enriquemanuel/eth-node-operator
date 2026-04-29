@@ -2,14 +2,14 @@ name: mainnet-validators
 description: >
   Production Ethereum validator infrastructure.
   Bare metal nodes run: EL + CL beacon node + MEV-Boost.
-  Lighthouse VC runs on EKS and connects to beacon nodes via HTTPS
-  (Traefik TLS termination on :443, proxied to localhost:5052).
-  Port :5052 is never exposed externally.
+  Lighthouse VC connects via Cloudflare Tunnel (outbound-only, no inbound ports).
+  DNS is managed automatically by the ethagent on each node.
 
 profiles:
   - mainnet-base
   - observability-full
   - mev-standard
+  - cloudflare-tunnel
 
 defaultPort: 19000
 
@@ -24,15 +24,21 @@ nodes:
         enabled: false
       snapshot:
         enabled: false
-      # Snapshot server doesn't need VC access
       network:
-        vcGateways: []
+        cloudflare:
+          domain: validators.example.com
+          accountId: "${CF_ACCOUNT_ID}"
+          zoneId: "${CF_ZONE_ID}"
+          nodeSubdomain: snapshot-server-01
+          clSubdomain: snapshot-server-01-cl
+          tunnelName: eth-snapshot-server-01
+          accessPolicy: service-token
 
   # ── Validator beacon nodes ───────────────────────────────────────────
-  # vcGateways: EKS NAT gateway egress IPs for this region.
-  # These drive both UFW :443 rules and Traefik IPAllowList middleware.
-  # Lighthouse VC on EKS connects to: https://beacon.bare-metal-01.example.com
-  #                                    https://beacon.bare-metal-02.example.com
+  # Lighthouse VC connects to:
+  #   https://bare-metal-01-cl.validators.example.com
+  #   https://bare-metal-02-cl.validators.example.com
+  # These are Cloudflare Tunnel endpoints — no :443 inbound port needed.
 
   - name: bare-metal-01
     host: 10.1.1.1
@@ -40,9 +46,14 @@ nodes:
     profiles: [geth-lighthouse]
     spec:
       network:
-        vcGateways:
-          - "10.0.1.0/24"    # EKS us-east-1a NAT gateway
-          - "10.0.2.0/24"    # EKS us-east-1b NAT gateway
+        cloudflare:
+          domain: validators.example.com
+          accountId: "${CF_ACCOUNT_ID}"
+          zoneId: "${CF_ZONE_ID}"
+          nodeSubdomain: bare-metal-01       # A: bare-metal-01.validators.example.com → IP
+          clSubdomain: bare-metal-01-cl      # CNAME: bare-metal-01-cl.validators.example.com → tunnel
+          tunnelName: eth-bare-metal-01
+          accessPolicy: service-token        # Cloudflare Access: only VC service token
       snapshot:
         provider: self-hosted
         url: http://10.1.1.10:8888
@@ -56,9 +67,14 @@ nodes:
     profiles: [nethermind-teku]
     spec:
       network:
-        vcGateways:
-          - "10.0.1.0/24"
-          - "10.0.2.0/24"
+        cloudflare:
+          domain: validators.example.com
+          accountId: "${CF_ACCOUNT_ID}"
+          zoneId: "${CF_ZONE_ID}"
+          nodeSubdomain: bare-metal-02
+          clSubdomain: bare-metal-02-cl
+          tunnelName: eth-bare-metal-02
+          accessPolicy: service-token
       snapshot:
         provider: self-hosted
         url: http://10.1.1.10:8888
@@ -75,9 +91,14 @@ nodes:
   #   profiles: [reth-lighthouse]
   #   spec:
   #     network:
-  #       vcGateways:
-  #         - "10.0.1.0/24"
-  #         - "10.0.2.0/24"
+  #       cloudflare:
+  #         domain: validators.example.com
+  #         accountId: "${CF_ACCOUNT_ID}"
+  #         zoneId: "${CF_ZONE_ID}"
+  #         nodeSubdomain: bare-metal-03
+  #         clSubdomain: bare-metal-03-cl
+  #         tunnelName: eth-bare-metal-03
+  #         accessPolicy: service-token
   #     snapshot:
   #       provider: self-hosted
   #       url: http://10.1.1.10:8888

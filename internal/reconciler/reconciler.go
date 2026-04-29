@@ -3,10 +3,12 @@ package reconciler
 import (
 	"context"
 	"fmt"
+	"os"
 	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/enriquemanuel/eth-node-operator/internal/cloudflare"
 	"github.com/enriquemanuel/eth-node-operator/internal/disk"
 	"github.com/enriquemanuel/eth-node-operator/internal/snapshot"
 	"github.com/enriquemanuel/eth-node-operator/internal/obs"
@@ -80,28 +82,44 @@ func (r *Reconciler) Reconcile(ctx context.Context, desired types.NodeSpec) (*ty
 		}
 	}
 
-	// VC gateway :443 rules (generated from spec.network.vcGateways)
-	if len(desired.Network.VCGateways) > 0 {
-		if err := r.reconcileVCGatewayRules(ctx, desired); err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("vc-gateway-firewall: %v", err))
+
+	// 4. Cloudflare DNS + Tunnel (if configured)
+	if desired.Network.Cloudflare.TunnelName != "" {
+		cfToken := os.Getenv("CF_DNS_API_TOKEN")
+		if cfToken != "" {
+			cfMgr := cloudflare.New(cfToken)
+			cfCfg := cloudflare.NodeConfig{
+				AccountID:     desired.Network.Cloudflare.AccountID,
+				ZoneID:        desired.Network.Cloudflare.ZoneID,
+				Domain:        desired.Network.Cloudflare.Domain,
+				NodeSubdomain: desired.Network.Cloudflare.NodeSubdomain,
+				CLSubdomain:   desired.Network.Cloudflare.CLSubdomain,
+				TunnelName:    desired.Network.Cloudflare.TunnelName,
+			}
+			cfResult, err := cfMgr.Reconcile(ctx, cfCfg)
+			if err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("cloudflare: %v", err))
+			} else {
+				result.Actions = append(result.Actions, cfResult.Actions...)
+			}
 		}
 	}
 
-	// 4. Execution client
+	// 5. Execution client
 	if action, err := r.reconcileClient(ctx, "execution", desired.Execution); err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("el: %v", err))
 	} else if action != "" {
 		result.Actions = append(result.Actions, action)
 	}
 
-	// 5. Consensus client
+	// 6. Consensus client
 	if action, err := r.reconcileClient(ctx, "consensus", desired.Consensus); err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("cl: %v", err))
 	} else if action != "" {
 		result.Actions = append(result.Actions, action)
 	}
 
-	// 6. MEV boost
+	// 7. MEV boost
 	if desired.MEV.Enabled {
 		if action, err := r.reconcileMEV(ctx, desired.MEV); err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("mev: %v", err))
@@ -110,7 +128,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, desired types.NodeSpec) (*ty
 		}
 	}
 
-	// 7. Observability stack
+	// 8. Observability stack
 	if r.obsMgr != nil && desired.Observability.Metrics.Enabled {
 		obsActions, err := r.obsMgr.Reconcile(ctx)
 		if err != nil {
@@ -229,39 +247,6 @@ func (r *Reconciler) reconcileMEV(ctx context.Context, desired types.MEVSpec) (s
 		return "mev-boost: started (was stopped)", nil
 	}
 	return "", nil
-}
-
-func (r *Reconciler) reconcileVCGatewayRules(ctx context.Context, desired types.NodeSpec) error {
-	if len(desired.Network.VCGateways) == 0 {
-		return nil
-	}
-	// Build firewall spec with one rule per VC gateway source IP
-	var rules []types.FirewallRule
-	for _, cidr := range desired.Network.VCGateways {
-		rules = append(rules, types.FirewallRule{
-			Description: "VC gateway → Traefik (beacon node TLS)",
-			Port:        443,
-			Proto:       "tcp",
-			Direction:   "inbound",
-			Source:      cidr,
-			Action:      "allow",
-		})
-	}
-	spec := types.FirewallSpec{
-		Provider: desired.Network.Firewall.Provider,
-		Policy:   desired.Network.Firewall.Policy,
-		Rules:    rules,
-	}
-	missing, err := r.firewall.DriftCheck(ctx, spec)
-	if err != nil || len(missing) == 0 {
-		return err
-	}
-	r.log.Info("VC gateway firewall rules missing, applying", "count", len(missing))
-	return r.firewall.ApplyRules(ctx, types.FirewallSpec{
-		Provider: desired.Network.Firewall.Provider,
-		Policy:   desired.Network.Firewall.Policy,
-		Rules:    append(desired.Network.Firewall.Rules, rules...),
-	})
 }
 
 func (r *Reconciler) reconcileFirewall(ctx context.Context, desired types.FirewallSpec) error {

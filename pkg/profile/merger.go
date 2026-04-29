@@ -184,9 +184,27 @@ func mergeSpecs(dst, src types.NodeSpec) types.NodeSpec {
 		dst.Observability.StackDir = src.Observability.StackDir
 	}
 
-	// VCGateways
-	if len(src.Network.VCGateways) > 0 {
-		dst.Network.VCGateways = append(dst.Network.VCGateways, src.Network.VCGateways...)
+	// Cloudflare
+	if src.Network.Cloudflare.Domain != "" {
+		dst.Network.Cloudflare.Domain = src.Network.Cloudflare.Domain
+	}
+	if src.Network.Cloudflare.AccountID != "" {
+		dst.Network.Cloudflare.AccountID = src.Network.Cloudflare.AccountID
+	}
+	if src.Network.Cloudflare.ZoneID != "" {
+		dst.Network.Cloudflare.ZoneID = src.Network.Cloudflare.ZoneID
+	}
+	if src.Network.Cloudflare.NodeSubdomain != "" {
+		dst.Network.Cloudflare.NodeSubdomain = src.Network.Cloudflare.NodeSubdomain
+	}
+	if src.Network.Cloudflare.CLSubdomain != "" {
+		dst.Network.Cloudflare.CLSubdomain = src.Network.Cloudflare.CLSubdomain
+	}
+	if src.Network.Cloudflare.TunnelName != "" {
+		dst.Network.Cloudflare.TunnelName = src.Network.Cloudflare.TunnelName
+	}
+	if src.Network.Cloudflare.AccessPolicy != "" {
+		dst.Network.Cloudflare.AccessPolicy = src.Network.Cloudflare.AccessPolicy
 	}
 
 	// Snapshot

@@ -1,0 +1,41 @@
+name: cloudflare-tunnel
+# Cloudflare Tunnel profile — establishes the outbound tunnel from each
+# bare metal node to Cloudflare edge for the beacon node HTTPS endpoint.
+#
+# The ethagent reconciler:
+#   1. Calls Cloudflare API to create/verify the tunnel
+#   2. Creates DNS records automatically:
+#        {nodeSubdomain}.{domain}    → A record  (node IP, for SSH + ethctl)
+#        {clSubdomain}.{domain}      → CNAME     (tunnel, for Lighthouse VC)
+#   3. Writes /etc/cloudflared/config.yml
+#   4. Ensures cloudflared.service is running
+#
+# Tunnel is outbound-only (UDP 7844). No inbound ports needed.
+# TLS is terminated at Cloudflare edge — no cert management on the node.
+# Access control is enforced via Cloudflare Access policy (service token).
+#
+# Per-node values (nodeSubdomain, clSubdomain, tunnelName) are set in the
+# cluster file under spec.network.cloudflare so each node gets its own
+# DNS records and tunnel.
+#
+# Required env var on each node: CF_DNS_API_TOKEN
+# (already present from the observability stack .env)
+spec:
+  network:
+    firewall:
+      rules:
+        # cloudflared outbound — not needed as UFW default allows outbound
+        # Included as documentation of what cloudflared uses
+        - description: "cloudflared outbound (documentation only, outbound allowed by default)"
+          port: 7844
+          proto: udp
+          direction: outbound
+          action: allow
+
+        # No :443 inbound rule — tunnel is outbound-only.
+        # The beacon node :5052 is never exposed externally.
+
+  system:
+    packages:
+      - name: cloudflared
+        version: latest

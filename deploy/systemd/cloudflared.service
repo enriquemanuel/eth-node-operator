@@ -1,0 +1,25 @@
+[Unit]
+Description=Cloudflare Tunnel — beacon node HTTPS endpoint
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/bin/cloudflared tunnel --config /etc/cloudflared/config.yml run
+
+Restart=on-failure
+RestartSec=15s
+TimeoutStopSec=30s
+
+# cloudflared uses outbound UDP 7844 to Cloudflare edge.
+# No inbound ports are needed — this is the entire point.
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cloudflared
+
+[Install]
+WantedBy=multi-user.target
