@@ -21,6 +21,38 @@ type NodeSpec struct {
 	MEV           MEVSpec           `yaml:"mev"`
 	Observability ObservabilitySpec `yaml:"observability"`
 	Maintenance   MaintenanceSpec   `yaml:"maintenance"`
+	Snapshot      SnapshotSpec      `yaml:"snapshot"`
+	Validator     ValidatorSpec     `yaml:"validator"`
+}
+
+// SnapshotSpec controls whether and how to restore a client snapshot on first boot.
+// The operator checks if the datadir is empty before starting the client — if it is,
+// it downloads and extracts the latest snapshot from the configured provider.
+type SnapshotSpec struct {
+	Enabled     bool   `yaml:"enabled"`
+	Provider    string `yaml:"provider"`    // ethpandaops (default)
+	Network     string `yaml:"network"`     // mainnet | sepolia | hoodi | holesky
+	ELEnabled   bool   `yaml:"elEnabled"`   // download EL snapshot
+	CLEnabled   bool   `yaml:"clEnabled"`   // download CL snapshot
+	// BlockNumber pins a specific snapshot. Leave empty to use latest.
+	BlockNumber string `yaml:"blockNumber,omitempty"`
+}
+
+// ValidatorSpec describes the local validator client configuration.
+// The VC is separate from the beacon node and can point to any BN
+// exposing the standard Beacon API — including a different client impl.
+type ValidatorSpec struct {
+	Enabled        bool              `yaml:"enabled"`
+	Client         string            `yaml:"client"`         // lighthouse | teku | prysm | nimbus | lodestar
+	Image          string            `yaml:"image"`
+	DataDir        string            `yaml:"dataDir"`
+	// BeaconNodes lists BN endpoints the VC connects to. First is primary.
+	// Lighthouse VC supports multiple for automatic failover.
+	BeaconNodes    []string          `yaml:"beaconNodes"`
+	Web3SignerURL  string            `yaml:"web3SignerURL,omitempty"`
+	GraffitiFile   string            `yaml:"graffitiFile,omitempty"`
+	SuggestFeeRecipient string       `yaml:"suggestFeeRecipient,omitempty"`
+	Flags          map[string]string `yaml:"flags"`
 }
 
 // SystemSpec describes OS-level configuration.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/enriquemanuel/eth-node-operator/internal/disk"
+	"github.com/enriquemanuel/eth-node-operator/internal/snapshot"
 	"github.com/enriquemanuel/eth-node-operator/internal/obs"
 	"github.com/enriquemanuel/eth-node-operator/internal/ufw"
 	"github.com/enriquemanuel/eth-node-operator/pkg/dockerclient"
@@ -61,7 +62,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, desired types.NodeSpec) (*ty
 	}
 	result.Actions = append(result.Actions, diskActions...)
 
-	// 2. Firewall
+	// 2. Snapshot restore (if datadir empty — runs before starting clients)
+	if desired.Snapshot.Enabled {
+		snapActions, err := r.reconcileSnapshot(ctx, desired)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("snapshot: %v", err))
+		}
+		result.Actions = append(result.Actions, snapActions...)
+	}
+
+	// 3. Firewall
 	if desired.Network.Firewall.Provider == "ufw" {
 		if err := r.reconcileFirewall(ctx, desired.Network.Firewall); err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("firewall: %v", err))
@@ -70,21 +80,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, desired types.NodeSpec) (*ty
 		}
 	}
 
-	// 3. Execution client
+	// 4. Execution client
 	if action, err := r.reconcileClient(ctx, "execution", desired.Execution); err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("el: %v", err))
 	} else if action != "" {
 		result.Actions = append(result.Actions, action)
 	}
 
-	// 4. Consensus client
+	// 5. Consensus client
 	if action, err := r.reconcileClient(ctx, "consensus", desired.Consensus); err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("cl: %v", err))
 	} else if action != "" {
 		result.Actions = append(result.Actions, action)
 	}
 
-	// 5. MEV boost
+	// 6. MEV boost
 	if desired.MEV.Enabled {
 		if action, err := r.reconcileMEV(ctx, desired.MEV); err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("mev: %v", err))
@@ -93,7 +103,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, desired types.NodeSpec) (*ty
 		}
 	}
 
-	// 6. Observability stack
+	// 7. Observability stack
 	if r.obsMgr != nil && desired.Observability.Metrics.Enabled {
 		obsActions, err := r.obsMgr.Reconcile(ctx)
 		if err != nil {
@@ -107,6 +117,39 @@ func (r *Reconciler) Reconcile(ctx context.Context, desired types.NodeSpec) (*ty
 
 	result.Duration = time.Since(start)
 	return result, nil
+}
+
+func (r *Reconciler) reconcileSnapshot(ctx context.Context, desired types.NodeSpec) ([]string, error) {
+	var actions []string
+	d := snapshot.New()
+	network := desired.Snapshot.Network
+	if network == "" {
+		network = "mainnet"
+	}
+
+	if desired.Snapshot.ELEnabled && desired.Execution.DataDir != "" {
+		restored, err := d.RestoreIfEmpty(ctx, network, desired.Execution.Client, desired.Execution.DataDir)
+		if err != nil {
+			return actions, fmt.Errorf("EL snapshot: %w", err)
+		}
+		if restored {
+			actions = append(actions, fmt.Sprintf("snapshot: restored %s/%s to %s",
+				network, desired.Execution.Client, desired.Execution.DataDir))
+		}
+	}
+
+	if desired.Snapshot.CLEnabled && desired.Consensus.DataDir != "" {
+		restored, err := d.RestoreIfEmpty(ctx, network, desired.Consensus.Client, desired.Consensus.DataDir)
+		if err != nil {
+			return actions, fmt.Errorf("CL snapshot: %w", err)
+		}
+		if restored {
+			actions = append(actions, fmt.Sprintf("snapshot: restored %s/%s to %s",
+				network, desired.Consensus.Client, desired.Consensus.DataDir))
+		}
+	}
+
+	return actions, nil
 }
 
 func (r *Reconciler) reconcileClient(ctx context.Context, containerName string, desired types.ClientSpec) (string, error) {

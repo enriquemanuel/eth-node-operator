@@ -1,61 +1,53 @@
 name: mainnet-validators
 description: >
   Production Ethereum validator infrastructure.
-  Infrastructure profiles apply to all nodes.
-  Each node picks exactly one client pair from inventory/profiles/clients/.
-  Adding a node = name + host + client pair. Done.
+  Infrastructure + snapshot + validator profiles apply to all nodes.
+  Each node picks exactly one client pair. Adding a node = 2 lines.
 
-# Infrastructure profiles — applied to every node.
-# Do NOT include client pairs here; those go on each node.
 profiles:
-  - mainnet-base
-  - observability-full
-  - mev-standard
+  - mainnet-base           # kernel, disk (RAID0), firewall, packages
+  - observability-full     # Alloy + all exporters
+  - mev-standard           # mev-boost + relay list
+  - snapshot-restore       # stream latest snapshot if datadir is empty
+  - lighthouse-vc-web3signer  # Lighthouse VC → Web3Signer for 45k keys
 
 defaultPort: 9000
 
 nodes:
-  # ── Diverse client mix for consensus layer health ──────────────────────
   # Best practice: no single client pair > 33% of your validator set.
-  # Spread across EL and CL independently for maximum fault isolation.
+  # Spread EL and CL independently. The lighthouse-vc connects to all BNs
+  # via standard Beacon API regardless of which CL client they run.
 
   - name: bare-metal-01
     host: 10.1.1.1
-    labels:
-      rack: "01"
-    profiles: [geth-lighthouse]       # Go EL + Rust CL
+    labels: { rack: "01" }
+    profiles: [geth-lighthouse]
+    spec:
+      validator:
+        beaconNodes:
+          - http://127.0.0.1:5052       # local lighthouse BN (primary)
+          - http://10.1.1.2:5052        # bare-metal-02 teku BN (fallback)
 
   - name: bare-metal-02
     host: 10.1.1.2
-    labels:
-      rack: "01"
-    profiles: [nethermind-teku]       # C# EL + Java CL
+    labels: { rack: "01" }
+    profiles: [nethermind-teku]
+    spec:
+      validator:
+        beaconNodes:
+          - http://127.0.0.1:5052       # local teku BN (primary)
+          - http://10.1.1.1:5052        # bare-metal-01 lighthouse BN (fallback)
+      maintenance:
+        window:
+          schedule: "0 3 * * 0"        # offset 1h from bare-metal-01
 
-  # Example: pin a specific image on one node without changing the profile
+  # ── Template: copy + fill name/host/profiles ────────────────────────
   # - name: bare-metal-03
   #   host: 10.1.1.3
-  #   labels:
-  #     rack: "02"
-  #   profiles: [reth-lighthouse]     # Rust EL + Rust CL (fastest sync)
+  #   labels: { rack: "02" }
+  #   profiles: [reth-lighthouse]      # fastest sync via snapshot
   #   spec:
-  #     execution:
-  #       image: ghcr.io/paradigmxyz/reth:v1.1.1  # pin newer version
-
-  # Example: different CL port if running multiple stacks on one host
-  # - name: bare-metal-04
-  #   host: 10.1.1.4
-  #   profiles: [besu-teku]           # Full ConsenSys stack
-  #   spec:
-  #     consensus:
-  #       flags:
-  #         p2p-port: "9001"          # offset port to avoid conflict
-
-  # ── Available client pairs (uncomment to use) ─────────────────────────
-  # Execution layer:  geth | nethermind | besu | reth
-  # Consensus layer:  lighthouse | teku | prysm
-  #
-  # Profiles in inventory/profiles/clients/:
-  #   geth-lighthouse        geth-teku        geth-prysm
-  #   nethermind-lighthouse  nethermind-teku  nethermind-prysm
-  #   besu-lighthouse        besu-teku
-  #   reth-lighthouse        reth-teku        reth-prysm
+  #     validator:
+  #       beaconNodes:
+  #         - http://127.0.0.1:5052
+  #         - http://10.1.1.1:5052

@@ -1,0 +1,25 @@
+name: snapshot-restore
+# Enables automatic snapshot restore from ethpandaops on first boot.
+# The operator checks if the EL and CL datadirs are empty.
+# If empty, it streams and extracts the latest snapshot before starting clients.
+#
+# Supported EL clients: geth, nethermind, besu, reth, erigon
+# Supported CL clients: lighthouse, teku, prysm, nimbus, lodestar
+#
+# Without this profile: clients start from scratch (snap sync takes hours/days)
+# With this profile:    clients start from a recent snapshot (minutes to sync)
+#
+# URL pattern: https://snapshots.ethpandaops.io/{network}/{client}/latest
+#
+# IMPORTANT: Only works on FRESH datadirs. The operator detects non-empty
+# datadirs and skips the download — it will never overwrite existing data.
+spec:
+  snapshot:
+    enabled: true
+    provider: ethpandaops
+    network: mainnet
+    elEnabled: true
+    clEnabled: true
+    # Leave blockNumber empty to always use the latest snapshot.
+    # Pin a specific block for reproducible environments:
+    # blockNumber: "21500000"
