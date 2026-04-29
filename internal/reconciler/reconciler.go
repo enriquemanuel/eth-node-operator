@@ -80,6 +80,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, desired types.NodeSpec) (*ty
 		}
 	}
 
+	// VC gateway :443 rules (generated from spec.network.vcGateways)
+	if len(desired.Network.VCGateways) > 0 {
+		if err := r.reconcileVCGatewayRules(ctx, desired); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("vc-gateway-firewall: %v", err))
+		}
+	}
+
 	// 4. Execution client
 	if action, err := r.reconcileClient(ctx, "execution", desired.Execution); err != nil {
 		result.Errors = append(result.Errors, fmt.Sprintf("el: %v", err))
@@ -222,6 +229,39 @@ func (r *Reconciler) reconcileMEV(ctx context.Context, desired types.MEVSpec) (s
 		return "mev-boost: started (was stopped)", nil
 	}
 	return "", nil
+}
+
+func (r *Reconciler) reconcileVCGatewayRules(ctx context.Context, desired types.NodeSpec) error {
+	if len(desired.Network.VCGateways) == 0 {
+		return nil
+	}
+	// Build firewall spec with one rule per VC gateway source IP
+	var rules []types.FirewallRule
+	for _, cidr := range desired.Network.VCGateways {
+		rules = append(rules, types.FirewallRule{
+			Description: "VC gateway → Traefik (beacon node TLS)",
+			Port:        443,
+			Proto:       "tcp",
+			Direction:   "inbound",
+			Source:      cidr,
+			Action:      "allow",
+		})
+	}
+	spec := types.FirewallSpec{
+		Provider: desired.Network.Firewall.Provider,
+		Policy:   desired.Network.Firewall.Policy,
+		Rules:    rules,
+	}
+	missing, err := r.firewall.DriftCheck(ctx, spec)
+	if err != nil || len(missing) == 0 {
+		return err
+	}
+	r.log.Info("VC gateway firewall rules missing, applying", "count", len(missing))
+	return r.firewall.ApplyRules(ctx, types.FirewallSpec{
+		Provider: desired.Network.Firewall.Provider,
+		Policy:   desired.Network.Firewall.Policy,
+		Rules:    append(desired.Network.Firewall.Rules, rules...),
+	})
 }
 
 func (r *Reconciler) reconcileFirewall(ctx context.Context, desired types.FirewallSpec) error {

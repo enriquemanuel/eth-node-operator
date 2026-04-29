@@ -87,6 +87,11 @@ type NetworkSpec struct {
 	DNS      DNSSpec      `yaml:"dns"`
 	Firewall FirewallSpec `yaml:"firewall"`
 	TLS      TLSSpec      `yaml:"tls"`
+	// VCGateways is the list of IPs or CIDRs allowed to reach :443 (Traefik).
+	// These are the EKS NAT gateway egress IPs where the Lighthouse VC runs.
+	// Drives both the UFW rule and the Traefik IPAllowList middleware.
+	// Example: ["10.0.1.0/24", "52.1.2.3/32"]
+	VCGateways []string `yaml:"vcGateways"`
 }
 
 type DNSSpec struct {
@@ -344,7 +349,7 @@ const (
 	MEVPort = 18550
 
 	// ethagent
-	AgentPort = 9000
+	AgentPort = 19000
 )
 
 // Profile is a reusable partial NodeSpec.

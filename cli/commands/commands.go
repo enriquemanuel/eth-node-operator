@@ -29,7 +29,7 @@ func Root() *cobra.Command {
 	}
 
 	root.PersistentFlags().StringVarP(&inventoryFile, "inventory", "i", "inventory/nodes", "path to nodes inventory directory")
-	root.PersistentFlags().IntVar(&agentPort, "port", 9000, "agent HTTP port")
+	root.PersistentFlags().IntVar(&agentPort, "port", 19000, "agent HTTP port")
 
 	root.AddCommand(
 		nodesCmd(),

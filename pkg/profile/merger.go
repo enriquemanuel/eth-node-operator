@@ -184,6 +184,11 @@ func mergeSpecs(dst, src types.NodeSpec) types.NodeSpec {
 		dst.Observability.StackDir = src.Observability.StackDir
 	}
 
+	// VCGateways
+	if len(src.Network.VCGateways) > 0 {
+		dst.Network.VCGateways = append(dst.Network.VCGateways, src.Network.VCGateways...)
+	}
+
 	// Snapshot
 	if src.Snapshot.Enabled {
 		dst.Snapshot.Enabled = true

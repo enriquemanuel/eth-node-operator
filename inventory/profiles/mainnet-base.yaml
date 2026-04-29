@@ -1,6 +1,8 @@
 name: mainnet-base
-# Infrastructure profile — applies to every node regardless of client pair.
-# Does NOT specify execution or consensus clients — those live in clients/*.
+# Infrastructure profile — applies to every bare metal node.
+# Manages: kernel params, disk (RAID0), packages, maintenance window,
+# and the base firewall rules. Client-specific rules come from client pair
+# profiles. VC gateway access rules come from the cluster/node spec.
 spec:
   system:
     packages:
@@ -13,6 +15,8 @@ spec:
       - name: chrony
         version: latest
       - name: mdadm
+        version: latest
+      - name: zstd
         version: latest
     kernel:
       parameters:
@@ -34,36 +38,63 @@ spec:
       provider: ufw
       policy: deny-by-default
       rules:
+        # ── Management ──────────────────────────────────────────────
         - description: "SSH"
           port: 22
           proto: tcp
           direction: inbound
           action: allow
+
+        # ethagent HTTP API — management network only, not EKS/VC
         - description: "ethagent API"
-          port: 9000
+          port: 19000
           proto: tcp
           direction: inbound
+          source: "10.0.0.0/8"
           action: allow
+
+        # ── Ethereum P2P ────────────────────────────────────────────
+        # EL P2P: discovery + sync with other execution nodes
         - description: "EL P2P TCP"
           port: 30303
           proto: tcp
           direction: inbound
           action: allow
+
         - description: "EL P2P UDP"
           port: 30303
           proto: udp
           direction: inbound
           action: allow
+
+        # CL P2P: beacon node gossip + sync
         - description: "CL P2P TCP"
           port: 9000
           proto: tcp
           direction: inbound
           action: allow
+
         - description: "CL P2P UDP"
           port: 9000
           proto: udp
           direction: inbound
           action: allow
+
+        # ── TLS termination (Traefik → beacon node) ─────────────────
+        # Port :443 is intentionally NOT opened here.
+        # It is opened per-node via spec.network.vcGateways:
+        #
+        #   spec:
+        #     network:
+        #       vcGateways:
+        #         - "10.0.1.0/24"   # EKS NAT gateway CIDR
+        #         - "52.1.2.3/32"   # EKS NAT gateway EIP
+        #
+        # The reconciler generates: ufw allow from <cidr> to any port 443 proto tcp
+        # Traefik also enforces IPAllowList as a second layer.
+        #
+        # :5052 (CL HTTP API) is NOT exposed externally.
+        # Traefik (on the same host) connects to it via localhost only.
 
   maintenance:
     window:
