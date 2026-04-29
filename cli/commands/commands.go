@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/enriquemanuel/eth-node-operator/cli/agentclient"
+	"github.com/enriquemanuel/eth-node-operator/internal/dns"
 	"github.com/enriquemanuel/eth-node-operator/pkg/inventory"
 	"github.com/enriquemanuel/eth-node-operator/pkg/types"
 	"github.com/spf13/cobra"
@@ -33,6 +34,7 @@ func Root() *cobra.Command {
 
 	root.AddCommand(
 		nodesCmd(),
+		dnsCmd(),
 		cordonCmd(),
 		uncordonCmd(),
 		syncCmd(),
@@ -459,4 +461,260 @@ func shortVersion(cs types.ClientStatus) string {
 	// Extract just client:version from the image
 	// ethereum/client-go:v1.14.8 → geth:v1.14.8
 	return cs.Image
+}
+
+// dnsCmd groups DNS management subcommands.
+func dnsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "dns",
+		Short: "Manage Route 53 DNS records for the cluster",
+	}
+	cmd.AddCommand(dnsListCmd(), dnsAuditCmd(), dnsCleanupCmd(), dnsDecommissionCmd())
+	return cmd
+}
+
+// dnsListCmd lists all A records in the zone.
+func dnsListCmd() *cobra.Command {
+	var zoneID, zone string
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all A records in the Route 53 zone",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !dns.IsConfigured() {
+				return fmt.Errorf("aws CLI not configured — set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY")
+			}
+			m := dns.New()
+			records, err := m.ListZoneRecords(context.Background(), zoneID, zone)
+			if err != nil {
+				return err
+			}
+			if len(records) == 0 {
+				fmt.Printf("No A records found in zone %s matching %q\n", zoneID, zone)
+				return nil
+			}
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "HOSTNAME\tIP\tTTL")
+			fmt.Fprintln(w, "────────\t──\t───")
+			for _, r := range records {
+				fmt.Fprintf(w, "%s\t%s\t%d\n", r.Hostname, r.IP, r.TTL)
+			}
+			return w.Flush()
+		},
+	}
+	cmd.Flags().StringVar(&zoneID, "zone-id", "", "Route 53 hosted zone ID (required)")
+	cmd.Flags().StringVar(&zone, "zone", "", "base domain to filter by (e.g. validators.example.com)")
+	cmd.MarkFlagRequired("zone-id")
+	return cmd
+}
+
+// dnsAuditCmd compares Route 53 records against active cluster nodes.
+func dnsAuditCmd() *cobra.Command {
+	var zoneID, zone string
+	cmd := &cobra.Command{
+		Use:   "audit",
+		Short: "Show Route 53 records that don't match any active cluster node",
+		Long: `Compares all A records in the Route 53 zone against the expected
+hostnames derived from active nodes in the cluster inventory.
+
+Reports any records that should not exist — decommissioned nodes,
+old client names after a client swap, or manual/stale entries.
+
+Use 'ethctl dns cleanup' to delete the reported records.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !dns.IsConfigured() {
+				return fmt.Errorf("aws CLI not configured")
+			}
+
+			// Build expected hostname set from cluster inventory
+			expected, err := expectedHostnames(zone)
+			if err != nil {
+				return fmt.Errorf("load cluster inventory: %w", err)
+			}
+
+			m := dns.New()
+			stale, err := m.Audit(context.Background(), zoneID, zone, expected)
+			if err != nil {
+				return err
+			}
+
+			if len(stale) == 0 {
+				fmt.Printf("✓ All records in zone %s match active cluster nodes\n", zone)
+				return nil
+			}
+
+			fmt.Printf("⚠ Found %d stale record(s) in zone %s:\n\n", len(stale), zone)
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "HOSTNAME\tIP\tSTATUS")
+			fmt.Fprintln(w, "────────\t──\t──────")
+			for _, r := range stale {
+				fmt.Fprintf(w, "%s\t%s\tnot in cluster\n", r.Hostname, r.IP)
+			}
+			w.Flush()
+			fmt.Printf("\nRun 'ethctl dns cleanup --zone-id %s --zone %s' to delete them.\n", zoneID, zone)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&zoneID, "zone-id", "", "Route 53 hosted zone ID (required)")
+	cmd.Flags().StringVar(&zone, "zone", "", "base domain (required)")
+	cmd.MarkFlagRequired("zone-id")
+	cmd.MarkFlagRequired("zone")
+	return cmd
+}
+
+// dnsCleanupCmd deletes stale Route 53 records after confirmation.
+func dnsCleanupCmd() *cobra.Command {
+	var zoneID, zone string
+	var yes bool
+	cmd := &cobra.Command{
+		Use:   "cleanup",
+		Short: "Delete Route 53 records that don't match any active cluster node",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !dns.IsConfigured() {
+				return fmt.Errorf("aws CLI not configured")
+			}
+
+			expected, err := expectedHostnames(zone)
+			if err != nil {
+				return fmt.Errorf("load inventory: %w", err)
+			}
+
+			m := dns.New()
+			stale, err := m.Audit(context.Background(), zoneID, zone, expected)
+			if err != nil {
+				return err
+			}
+
+			if len(stale) == 0 {
+				fmt.Println("✓ Nothing to clean up")
+				return nil
+			}
+
+			fmt.Printf("Will delete %d stale record(s):\n", len(stale))
+			for _, r := range stale {
+				fmt.Printf("  DELETE  %-55s → %s\n", r.Hostname, r.IP)
+			}
+
+			if !yes {
+				fmt.Print("\nProceed? [y/N] ")
+				var confirm string
+				fmt.Scanln(&confirm)
+				if confirm != "y" && confirm != "Y" {
+					fmt.Println("Aborted.")
+					return nil
+				}
+			}
+
+			var failed []string
+			for _, r := range stale {
+				if err := m.Delete(context.Background(), r.Hostname, zoneID); err != nil {
+					failed = append(failed, fmt.Sprintf("%s: %v", r.Hostname, err))
+					fmt.Printf("  ✗ %s\n", r.Hostname)
+				} else {
+					fmt.Printf("  ✓ deleted %s\n", r.Hostname)
+				}
+			}
+
+			if len(failed) > 0 {
+				return fmt.Errorf("some deletions failed: %v", failed)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&zoneID, "zone-id", "", "Route 53 hosted zone ID (required)")
+	cmd.Flags().StringVar(&zone, "zone", "", "base domain (required)")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip confirmation prompt")
+	cmd.MarkFlagRequired("zone-id")
+	cmd.MarkFlagRequired("zone")
+	return cmd
+}
+
+// dnsDecommissionCmd removes a node's DNS record and marks it disabled.
+func dnsDecommissionCmd() *cobra.Command {
+	var zoneID string
+	var yes bool
+	cmd := &cobra.Command{
+		Use:   "decommission <node>",
+		Short: "Delete a node's Route 53 A record (run before removing hardware)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			nodeName := args[0]
+
+			node, err := findNode(nodeName)
+			if err != nil {
+				return err
+			}
+
+			if zoneID == "" {
+				zoneID = node.Spec.Network.Route53.ZoneID
+			}
+			zone := node.Spec.Network.Route53.Zone
+			if zoneID == "" || zone == "" {
+				return fmt.Errorf("node %s has no Route 53 config (zoneId / zone missing)", nodeName)
+			}
+
+			hostname := dns.Hostname(nodeName, node.Spec.Execution.Client, zone)
+
+			if !yes {
+				fmt.Printf("Will delete: %s (zone: %s)\n", hostname, zoneID)
+				fmt.Print("Proceed? [y/N] ")
+				var confirm string
+				fmt.Scanln(&confirm)
+				if confirm != "y" && confirm != "Y" {
+					fmt.Println("Aborted.")
+					return nil
+				}
+			}
+
+			if !dns.IsConfigured() {
+				return fmt.Errorf("aws CLI not configured")
+			}
+
+			m := dns.New()
+			if err := m.Delete(context.Background(), hostname, zoneID); err != nil {
+				return fmt.Errorf("delete %s: %w", hostname, err)
+			}
+			fmt.Printf("✓ Deleted %s\n", hostname)
+			fmt.Printf("\nNext steps:\n")
+			fmt.Printf("  1. Remove bare metal hardware / return to provider\n")
+			fmt.Printf("  2. Remove or disable node in inventory/clusters/*.yaml\n")
+			fmt.Printf("  3. Run 'ethctl dns audit' to confirm zone is clean\n")
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&zoneID, "zone-id", "", "Route 53 zone ID (defaults to node's configured zone)")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip confirmation prompt")
+	return cmd
+}
+
+// expectedHostnames builds the set of A record hostnames that should exist
+// based on the current cluster inventory.
+func expectedHostnames(zone string) (map[string]bool, error) {
+	clusters, err := inventory.LoadAllClusters(inventoryFile)
+	if err != nil {
+		// Fall back to treating inventoryFile as a single cluster
+		nodes, err2 := inventory.LoadAll(inventoryFile)
+		if err2 != nil {
+			return nil, err
+		}
+		expected := make(map[string]bool)
+		for _, n := range nodes {
+			if n.Spec.Execution.Client != "" {
+				expected[dns.Hostname(n.Name, n.Spec.Execution.Client, zone)] = true
+			}
+		}
+		return expected, nil
+	}
+
+	expected := make(map[string]bool)
+	for _, c := range clusters {
+		for _, cn := range c.Nodes {
+			if cn.Disabled {
+				continue
+			}
+			if cn.Spec.Execution.Client != "" {
+				expected[dns.Hostname(cn.Name, cn.Spec.Execution.Client, zone)] = true
+			}
+		}
+	}
+	return expected, nil
 }
