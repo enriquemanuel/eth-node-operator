@@ -1,37 +1,32 @@
 name: mainnet-validators
 description: >
   Production Ethereum validator infrastructure.
-  Includes a dedicated snapshot server so nodes sync from internal storage.
+  Bare metal nodes run EL + CL beacon node + MEV-Boost.
+  Validator client (Lighthouse VC + Web3Signer) runs separately on EKS
+  and connects to these beacon nodes via the standard Beacon API (:5052).
 
 profiles:
   - mainnet-base
   - observability-full
   - mev-standard
-  - lighthouse-vc-web3signer
 
 defaultPort: 9000
 
 nodes:
   # ── Snapshot server ─────────────────────────────────────────────────
-  # One dedicated node that stays fully synced, takes daily snapshots,
-  # and serves them to all other nodes. Saves downloading from ethpandaops
-  # repeatedly (especially important when spinning up many nodes at once).
   - name: snapshot-server-01
     host: 10.1.1.10
     labels: { role: snapshot-server }
     profiles: [geth-lighthouse, snapshot-server]
-    # snapshot-server nodes do NOT run validators or MEV-Boost
     spec:
       mev:
-        enabled: false
-      validator:
         enabled: false
       snapshot:
         enabled: false   # this node IS the source, not a consumer
 
-  # ── Validator nodes ─────────────────────────────────────────────────
-  # All consume snapshots from the internal snapshot server.
-  # No ethpandaops download needed after snapshot-server-01 is synced.
+  # ── Validator beacon nodes ───────────────────────────────────────────
+  # Each runs: EL + CL beacon node + MEV-Boost
+  # Lighthouse VC on EKS connects to :5052 on these nodes for attestations
 
   - name: bare-metal-01
     host: 10.1.1.1
@@ -44,10 +39,6 @@ nodes:
         network: mainnet
         elEnabled: true
         clEnabled: true
-      validator:
-        beaconNodes:
-          - http://127.0.0.1:5052
-          - http://10.1.1.2:5052
 
   - name: bare-metal-02
     host: 10.1.1.2
@@ -60,15 +51,11 @@ nodes:
         network: mainnet
         elEnabled: true
         clEnabled: true
-      validator:
-        beaconNodes:
-          - http://127.0.0.1:5052
-          - http://10.1.1.1:5052
       maintenance:
         window:
           schedule: "0 3 * * 0"
 
-  # ── Template: new validator node (2 lines) ───────────────────────────
+  # ── Template: new node (3 lines) ────────────────────────────────────
   # - name: bare-metal-03
   #   host: 10.1.1.3
   #   profiles: [reth-lighthouse]

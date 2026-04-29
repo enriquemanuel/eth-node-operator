@@ -22,7 +22,6 @@ type NodeSpec struct {
 	Observability ObservabilitySpec `yaml:"observability"`
 	Maintenance   MaintenanceSpec   `yaml:"maintenance"`
 	Snapshot      SnapshotSpec      `yaml:"snapshot"`
-	Validator     ValidatorSpec     `yaml:"validator"`
 }
 
 // SnapshotSpec controls whether and how to restore a client snapshot on first boot.
@@ -46,22 +45,6 @@ type SnapshotSpec struct {
 	URL         string `yaml:"url,omitempty"`
 }
 
-// ValidatorSpec describes the local validator client configuration.
-// The VC is separate from the beacon node and can point to any BN
-// exposing the standard Beacon API — including a different client impl.
-type ValidatorSpec struct {
-	Enabled        bool              `yaml:"enabled"`
-	Client         string            `yaml:"client"`         // lighthouse | teku | prysm | nimbus | lodestar
-	Image          string            `yaml:"image"`
-	DataDir        string            `yaml:"dataDir"`
-	// BeaconNodes lists BN endpoints the VC connects to. First is primary.
-	// Lighthouse VC supports multiple for automatic failover.
-	BeaconNodes    []string          `yaml:"beaconNodes"`
-	Web3SignerURL  string            `yaml:"web3SignerURL,omitempty"`
-	GraffitiFile   string            `yaml:"graffitiFile,omitempty"`
-	SuggestFeeRecipient string       `yaml:"suggestFeeRecipient,omitempty"`
-	Flags          map[string]string `yaml:"flags"`
-}
 
 // SystemSpec describes OS-level configuration.
 type SystemSpec struct {
@@ -356,9 +339,6 @@ const (
 	CLP2PPort     = 9000
 	CLMetricsPort = 5054
 
-	// Validator client
-	VCHTTPPort    = 5062
-	VCMetricsPort = 5064
 
 	// MEV-Boost
 	MEVPort = 18550

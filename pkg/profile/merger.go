@@ -204,33 +204,6 @@ func mergeSpecs(dst, src types.NodeSpec) types.NodeSpec {
 		dst.Snapshot.BlockNumber = src.Snapshot.BlockNumber
 	}
 
-	// Validator client
-	if src.Validator.Enabled {
-		dst.Validator.Enabled = true
-	}
-	if src.Validator.Client != "" {
-		dst.Validator.Client = src.Validator.Client
-	}
-	if src.Validator.Image != "" {
-		dst.Validator.Image = src.Validator.Image
-	}
-	if src.Validator.DataDir != "" {
-		dst.Validator.DataDir = src.Validator.DataDir
-	}
-	if len(src.Validator.BeaconNodes) > 0 {
-		dst.Validator.BeaconNodes = src.Validator.BeaconNodes
-	}
-	if src.Validator.Web3SignerURL != "" {
-		dst.Validator.Web3SignerURL = src.Validator.Web3SignerURL
-	}
-	if len(src.Validator.Flags) > 0 {
-		if dst.Validator.Flags == nil {
-			dst.Validator.Flags = make(map[string]string)
-		}
-		for k, v := range src.Validator.Flags {
-			dst.Validator.Flags[k] = v
-		}
-	}
 
 	// Maintenance
 	if src.Maintenance.Window.Schedule != "" {
